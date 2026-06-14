@@ -12,6 +12,7 @@ import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
+import android.util.Size
 import com.example.studycapturehelper.domain.CameraCapture
 import com.example.studycapturehelper.domain.CapturedImage
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,8 +25,6 @@ import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 private const val TAG = "UvcCameraCapture"
-private const val WIDTH = 640
-private const val HEIGHT = 480
 
 @Singleton
 class UvcCameraCapture @Inject constructor(
@@ -59,7 +58,9 @@ class UvcCameraCapture @Inject constructor(
             }, handler)
         }
 
-        val reader = ImageReader.newInstance(WIDTH, HEIGHT, ImageFormat.JPEG, 2)
+        val (width, height) = bestJpegSize(cameraId)
+        Log.d(TAG, "캡처 해상도: ${width}x${height}")
+        val reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 2)
         imageReader = reader
 
         session = suspendCoroutine { cont ->
@@ -104,6 +105,14 @@ class UvcCameraCapture @Inject constructor(
         device?.close(); device = null
         imageReader?.close(); imageReader = null
         Log.d(TAG, "카메라 연결 해제")
+    }
+
+    private fun bestJpegSize(cameraId: String): Pair<Int, Int> {
+        val map = cameraManager.getCameraCharacteristics(cameraId)
+            .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val sizes: Array<Size> = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+        val best = sizes.maxByOrNull { it.width.toLong() * it.height }
+        return if (best != null) best.width to best.height else 1920 to 1080
     }
 
     private fun findExternalOrFirstCamera(): String? {
