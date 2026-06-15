@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- UVC 비디오 클래스 -->
+    <usb-device class="0x0E" />
+</resources>

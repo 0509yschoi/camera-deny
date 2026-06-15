@@ -1,22 +1,20 @@
 package com.example.studycapturehelper.data
 
-import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.ImageFormat
-import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
-import android.media.ImageReader
-import android.os.Handler
-import android.os.HandlerThread
+import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
+import android.hardware.usb.UsbDevice
 import android.util.Log
-import android.util.Size
+import android.view.Surface
 import com.example.studycapturehelper.domain.CameraCapture
 import com.example.studycapturehelper.domain.CapturedImage
+import com.jiangdg.ausbc.MultiCameraClient
+import com.jiangdg.ausbc.callback.ICameraStateCallBack
+import com.jiangdg.ausbc.callback.ICaptureCallBack
+import com.jiangdg.ausbc.camera.CameraUVC
+import com.jiangdg.ausbc.camera.bean.CameraRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -31,99 +29,97 @@ class UvcCameraCapture @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : CameraCapture {
 
-    private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-    private val thread = HandlerThread("camera-bg").also { it.start() }
-    private val handler = Handler(thread.looper)
+    private var client: MultiCameraClient? = null
+    private var camera: CameraUVC? = null
+    private var surfaceTexture: SurfaceTexture? = null
+    private var surface: Surface? = null
 
-    private var device: CameraDevice? = null
-    private var session: CameraCaptureSession? = null
-    private var imageReader: ImageReader? = null
-
-    @SuppressLint("MissingPermission")
     override suspend fun connect() {
-        val cameraId = findExternalOrFirstCamera()
-            ?: error("OTG 카메라를 찾을 수 없습니다. USB 연결과 OTG 지원 여부를 확인하세요.")
+        val st = SurfaceTexture(0)
+        surfaceTexture = st
+        surface = Surface(st)
 
-        device = suspendCoroutine { cont ->
-            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(cam: CameraDevice) = cont.resume(cam)
-                override fun onDisconnected(cam: CameraDevice) {
-                    cam.close()
-                    cont.resumeWithException(IllegalStateException("카메라 연결이 끊겼습니다."))
+        val usbDevice = findUsbCamera() ?: error("USB 카메라를 찾을 수 없습니다. 연결을 확인하세요.")
+
+        camera = suspendCoroutine { cont ->
+            val cam = CameraUVC(context, usbDevice)
+            val request = CameraRequest.Builder()
+                .setFrontCamera(false)
+                .setHandleGravity(false)
+                .create()
+
+            cam.openCamera(surface, object : ICameraStateCallBack {
+                override fun onCameraState(
+                    self: MultiCameraClient.ICamera,
+                    code: ICameraStateCallBack.State,
+                    msg: String?,
+                ) {
+                    when (code) {
+                        ICameraStateCallBack.State.OPENED -> {
+                            Log.d(TAG, "카메라 열림")
+                            cont.resume(cam)
+                        }
+                        ICameraStateCallBack.State.ERROR -> {
+                            cont.resumeWithException(IllegalStateException("카메라 오류: $msg"))
+                        }
+                        else -> {}
+                    }
                 }
-                override fun onError(cam: CameraDevice, error: Int) {
-                    cam.close()
-                    cont.resumeWithException(IllegalStateException("카메라 오류: $error"))
-                }
-            }, handler)
+            }, request)
         }
-
-        val (width, height) = bestJpegSize(cameraId)
-        Log.d(TAG, "캡처 해상도: ${width}x${height}")
-        val reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 2)
-        imageReader = reader
-
-        session = suspendCoroutine { cont ->
-            @Suppress("DEPRECATION")
-            device!!.createCaptureSession(
-                listOf(reader.surface),
-                object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(s: CameraCaptureSession) = cont.resume(s)
-                    override fun onConfigureFailed(s: CameraCaptureSession) =
-                        cont.resumeWithException(IllegalStateException("세션 구성 실패"))
-                },
-                handler,
-            )
-        }
-
-        val request = device!!
-            .createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-            .apply { addTarget(reader.surface) }
-            .build()
-        session!!.setRepeatingRequest(request, null, handler)
-        Log.d(TAG, "카메라 연결 완료: $cameraId")
+        Log.d(TAG, "USB 카메라 연결 완료")
     }
 
     override suspend fun captureJpeg(): CapturedImage {
-        val reader = checkNotNull(imageReader) { "connect()를 먼저 호출하세요." }
+        val cam = checkNotNull(camera) { "connect()를 먼저 호출하세요." }
         val bytes = suspendCancellableCoroutine<ByteArray> { cont ->
-            reader.setOnImageAvailableListener({ r ->
-                r.setOnImageAvailableListener(null, null)
-                val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-                val buffer: ByteBuffer = image.planes[0].buffer
-                val data = ByteArray(buffer.remaining()).also { buffer.get(it) }
-                image.close()
-                cont.resume(data)
-            }, handler)
-            cont.invokeOnCancellation { reader.setOnImageAvailableListener(null, null) }
+            cam.captureImage(object : ICaptureCallBack {
+                override fun onBegin() {}
+                override fun onError(error: String?) {
+                    cont.resumeWithException(IllegalStateException("캡처 실패: $error"))
+                }
+                override fun onComplete(path: String?) {
+                    // path 방식 대신 bitmap 캡처 사용
+                }
+            }, null)
+
+            // bitmap 방식으로 캡처
+            cam.addPreviewDataCallBack { data, width, height ->
+                cam.removePreviewDataCallBack()
+                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val buf = java.nio.ByteBuffer.wrap(data)
+                bmp.copyPixelsFromBuffer(buf)
+                val out = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                bmp.recycle()
+                if (cont.isActive) cont.resume(out.toByteArray())
+            }
+            cont.invokeOnCancellation { cam.removePreviewDataCallBack() }
         }
         return CapturedImage(bytes = bytes, mimeType = "image/jpeg")
     }
 
     override suspend fun disconnect() {
-        session?.close(); session = null
-        device?.close(); device = null
-        imageReader?.close(); imageReader = null
+        camera?.closeCamera()
+        camera = null
+        surface?.release()
+        surface = null
+        surfaceTexture?.release()
+        surfaceTexture = null
+        client?.release()
+        client = null
         Log.d(TAG, "카메라 연결 해제")
     }
 
-    private fun bestJpegSize(cameraId: String): Pair<Int, Int> {
-        val map = cameraManager.getCameraCharacteristics(cameraId)
-            .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val sizes: Array<Size> = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
-        val best = sizes.maxByOrNull { it.width.toLong() * it.height }
-        return if (best != null) best.width to best.height else 1920 to 1080
-    }
-
-    private fun findExternalOrFirstCamera(): String? {
-        val ids = cameraManager.cameraIdList
-        // OTG/USB 외장 카메라 우선
-        val external = ids.firstOrNull { id ->
-            cameraManager.getCameraCharacteristics(id)
-                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_EXTERNAL
+    private fun findUsbCamera(): UsbDevice? {
+        val manager = context.getSystemService(Context.USB_SERVICE)
+                as android.hardware.usb.UsbManager
+        return manager.deviceList.values.firstOrNull { device ->
+            // UVC 비디오 클래스 = 0x0E
+            device.deviceClass == 0x0E ||
+                (0 until device.interfaceCount).any { i ->
+                    device.getInterface(i).interfaceClass == 0x0E
+                }
         }
-        if (external != null) return external
-        Log.w(TAG, "외장 카메라 없음 — 후면 카메라로 대체")
-        return ids.firstOrNull()
     }
 }
