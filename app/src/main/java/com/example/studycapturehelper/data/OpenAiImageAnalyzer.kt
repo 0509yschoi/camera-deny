@@ -46,7 +46,7 @@ class OpenAiImageAnalyzer @Inject constructor(
     }
 
     private companion object {
-        const val STUDY_PROMPT = """
+        val STUDY_PROMPT = """
 이미지에 문제가 보이면 아래 형식으로만 답해라. 절대 장황하게 설명하지 마라.
 
 형식:
