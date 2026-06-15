@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         setContent {
             MaterialTheme {
                 CaptureScreen(
@@ -65,6 +66,18 @@ class MainActivity : ComponentActivity() {
                     onDownloadUpdate = ::requestInstallPermissionAndDownload,
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent) {
+        if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("image/") == true) {
+            val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+            uri?.let { viewModel.analyzeSharedImage(it) }
         }
     }
 
@@ -139,6 +152,7 @@ private fun CaptureScreen(
     val settings by viewModel.settings.collectAsState()
     val state by viewModel.sessionState.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
+    val analyzeState by viewModel.analyzeState.collectAsState()
     val running = state == SessionState.RUNNING
     var intervalValue by remember(settings.intervalSeconds) {
         mutableFloatStateOf(settings.intervalSeconds.toFloat())
@@ -185,6 +199,14 @@ private fun CaptureScreen(
             if (state == SessionState.ERROR) {
                 Spacer(Modifier.height(12.dp))
                 Text("Session stopped. Check USB camera and backend connection.")
+            }
+            analyzeState?.let { result ->
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+                Text("분석 결과", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(result, style = MaterialTheme.typography.bodyLarge)
             }
             Spacer(Modifier.height(32.dp))
             HorizontalDivider()

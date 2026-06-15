@@ -110,8 +110,6 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
 
-    implementation("com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.3.0")
-
-    testImplementation("junit:junit:4.13.2")
+testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
