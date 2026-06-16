@@ -75,9 +75,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("image/") == true) {
-            val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
-            uri?.let { viewModel.analyzeSharedImage(it) }
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                if (intent.type?.startsWith("image/") == true) {
+                    val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+                    uri?.let { viewModel.analyzeSharedImage(it) }
+                }
+            }
+            android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                requestPermissionsAndStart()
+            }
         }
     }
 
