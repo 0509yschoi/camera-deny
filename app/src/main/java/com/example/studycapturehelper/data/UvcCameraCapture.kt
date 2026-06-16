@@ -161,18 +161,23 @@ class UvcCameraCapture @Inject constructor(
 
     private fun findExternalOrFirstCamera(): String? {
         val ids = cameraManager.cameraIdList
-        Log.d(TAG, "사용 가능한 카메라: ${ids.toList()}")
-        ids.forEach { id ->
-            val facing = cameraManager.getCameraCharacteristics(id)
+        val facingNames = mapOf(0 to "후면", 1 to "전면", 2 to "외장(USB)")
+        val summary = ids.joinToString { id ->
+            val f = cameraManager.getCameraCharacteristics(id)
                 .get(CameraCharacteristics.LENS_FACING)
-            Log.d(TAG, "카메라 $id facing=$facing")
+            "$id=${facingNames[f] ?: f}"
         }
+        Log.d(TAG, "카메라 목록: $summary")
+
         val external = ids.firstOrNull { id ->
             cameraManager.getCameraCharacteristics(id)
                 .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_EXTERNAL
         }
-        if (external != null) return external
-        Log.w(TAG, "외장 카메라 없음 — 후면 카메라로 대체")
-        return ids.firstOrNull()
+        if (external != null) {
+            Log.d(TAG, "USB 외장 카메라 사용: $external")
+            return external
+        }
+        Log.w(TAG, "USB 카메라 없음(목록: $summary) — 폰 카메라로 대체")
+        error("USB 카메라가 Camera2에서 감지되지 않습니다. 감지된 카메라: $summary")
     }
 }
