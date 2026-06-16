@@ -2,7 +2,11 @@ package com.example.studycapturehelper.data
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -16,7 +20,7 @@ import android.util.Size
 import com.example.studycapturehelper.domain.CameraCapture
 import com.example.studycapturehelper.domain.CapturedImage
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -38,11 +42,12 @@ class UvcCameraCapture @Inject constructor(
     private var device: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var imageReader: ImageReader? = null
+    private var useYuv = false
 
     @SuppressLint("MissingPermission")
     override suspend fun connect() {
         val cameraId = findExternalOrFirstCamera()
-            ?: error("OTG 카메라를 찾을 수 없습니다.")
+            ?: error("USB 카메라를 찾을 수 없습니다.")
 
         device = suspendCoroutine { cont ->
             cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
@@ -53,14 +58,16 @@ class UvcCameraCapture @Inject constructor(
                 }
                 override fun onError(cam: CameraDevice, error: Int) {
                     cam.close()
-                    cont.resumeWithException(IllegalStateException("카메라 오류: $error"))
+                    cont.resumeWithException(IllegalStateException("카메라 오류 코드: $error"))
                 }
             }, handler)
         }
 
-        val (width, height) = bestJpegSize(cameraId)
-        Log.d(TAG, "캡처 해상도: ${width}x${height}")
-        val reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 2)
+        val (format, width, height) = bestFormat(cameraId)
+        useYuv = (format == ImageFormat.YUV_420_888)
+        Log.d(TAG, "포맷: $format, 해상도: ${width}x${height}")
+
+        val reader = ImageReader.newInstance(width, height, format, 2)
         imageReader = reader
 
         session = suspendCoroutine { cont ->
@@ -90,10 +97,12 @@ class UvcCameraCapture @Inject constructor(
             reader.setOnImageAvailableListener({ r ->
                 r.setOnImageAvailableListener(null, null)
                 val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-                val buffer: ByteBuffer = image.planes[0].buffer
-                val data = ByteArray(buffer.remaining()).also { buffer.get(it) }
-                image.close()
-                cont.resume(data)
+                try {
+                    val data = if (useYuv) yuvToJpeg(image) else jpegBytes(image)
+                    cont.resume(data)
+                } finally {
+                    image.close()
+                }
             }, handler)
             cont.invokeOnCancellation { reader.setOnImageAvailableListener(null, null) }
         }
@@ -107,16 +116,57 @@ class UvcCameraCapture @Inject constructor(
         Log.d(TAG, "카메라 연결 해제")
     }
 
-    private fun bestJpegSize(cameraId: String): Pair<Int, Int> {
+    private fun jpegBytes(image: android.media.Image): ByteArray {
+        val buffer = image.planes[0].buffer
+        return ByteArray(buffer.remaining()).also { buffer.get(it) }
+    }
+
+    private fun yuvToJpeg(image: android.media.Image): ByteArray {
+        val yPlane = image.planes[0]
+        val uPlane = image.planes[1]
+        val vPlane = image.planes[2]
+        val ySize = yPlane.buffer.remaining()
+        val uSize = uPlane.buffer.remaining()
+        val vSize = vPlane.buffer.remaining()
+        val nv21 = ByteArray(ySize + uSize + vSize)
+        yPlane.buffer.get(nv21, 0, ySize)
+        vPlane.buffer.get(nv21, ySize, vSize)
+        uPlane.buffer.get(nv21, ySize + vSize, uSize)
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 95, out)
+        return out.toByteArray()
+    }
+
+    private fun bestFormat(cameraId: String): Triple<Int, Int, Int> {
         val map = cameraManager.getCameraCharacteristics(cameraId)
             .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val sizes: Array<Size> = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
-        val best = sizes.maxByOrNull { it.width.toLong() * it.height }
-        return if (best != null) best.width to best.height else 1920 to 1080
+
+        // JPEG 우선 시도
+        val jpegSizes = map?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
+        if (jpegSizes.isNotEmpty()) {
+            val best = jpegSizes.maxByOrNull { it.width.toLong() * it.height }!!
+            return Triple(ImageFormat.JPEG, best.width, best.height)
+        }
+
+        // YUV 폴백
+        val yuvSizes = map?.getOutputSizes(ImageFormat.YUV_420_888) ?: emptyArray()
+        if (yuvSizes.isNotEmpty()) {
+            val best = yuvSizes.maxByOrNull { it.width.toLong() * it.height }!!
+            return Triple(ImageFormat.YUV_420_888, best.width, best.height)
+        }
+
+        return Triple(ImageFormat.JPEG, 1280, 720)
     }
 
     private fun findExternalOrFirstCamera(): String? {
         val ids = cameraManager.cameraIdList
+        Log.d(TAG, "사용 가능한 카메라: ${ids.toList()}")
+        ids.forEach { id ->
+            val facing = cameraManager.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.LENS_FACING)
+            Log.d(TAG, "카메라 $id facing=$facing")
+        }
         val external = ids.firstOrNull { id ->
             cameraManager.getCameraCharacteristics(id)
                 .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_EXTERNAL

@@ -3,6 +3,7 @@ package com.example.studycapturehelper.service
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.example.studycapturehelper.domain.CameraCapture
@@ -64,7 +65,8 @@ class CaptureForegroundService : LifecycleService() {
                     val multiplier = thermalPolicy.multiplier.first()
                     delay(intervalPolicy.delayMillis(settings.intervalSeconds, multiplier))
                 }
-            }.onFailure {
+            }.onFailure { e ->
+                Log.e("CaptureSvc", "세션 오류: ${e.message}", e)
                 sessionStatus.update(SessionState.ERROR)
                 getSystemService(NotificationManager::class.java)
                     .notify(NotificationFactory.ERROR_ID, notifications.error())
