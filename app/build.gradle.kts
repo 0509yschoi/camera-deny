@@ -7,6 +7,7 @@ plugins {
 }
 
 val githubRepository = providers.gradleProperty("GITHUB_REPOSITORY").orElse("")
+val openAiApiKey = providers.gradleProperty("OPENAI_API_KEY").orElse("")
 val releaseVersion = providers.gradleProperty("RELEASE_VERSION").orElse("1.0")
 val releaseVersionCode = providers.gradleProperty("RELEASE_VERSION_CODE").orElse("1")
 val releaseStoreFile = providers.environmentVariable("RELEASE_STORE_FILE")
@@ -30,6 +31,11 @@ android {
             "String",
             "GITHUB_REPOSITORY",
             "\"${githubRepository.get()}\"",
+        )
+        buildConfigField(
+            "String",
+            "OPENAI_API_KEY",
+            "\"${openAiApiKey.get()}\"",
         )
     }
 

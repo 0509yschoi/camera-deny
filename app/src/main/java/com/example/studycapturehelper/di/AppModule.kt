@@ -5,6 +5,7 @@ import com.example.studycapturehelper.data.AndroidThermalPolicy
 import com.example.studycapturehelper.data.ApiTokenProvider
 import com.example.studycapturehelper.data.GitHubAppUpdateRepository
 import com.example.studycapturehelper.data.GitHubReleaseApi
+import com.example.studycapturehelper.BuildConfig
 import com.example.studycapturehelper.data.OpenAiApi
 import com.example.studycapturehelper.data.OpenAiImageAnalyzer
 import com.example.studycapturehelper.data.SettingsRepositoryImpl
@@ -76,7 +77,6 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideTokenProvider(): ApiTokenProvider = ApiTokenProvider {
-        // Replace with a short-lived token fetched from your authenticated backend.
-        null
+        BuildConfig.OPENAI_API_KEY.takeIf { it.isNotBlank() }
     }
 }

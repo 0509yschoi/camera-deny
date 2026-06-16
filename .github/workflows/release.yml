@@ -58,6 +58,7 @@ jobs:
           -PGITHUB_REPOSITORY="${{ github.repository }}"
           -PRELEASE_VERSION="${{ github.ref_name }}"
           -PRELEASE_VERSION_CODE="${{ github.run_number }}"
+          -POPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
 
       - name: Rename APK
         shell: bash
