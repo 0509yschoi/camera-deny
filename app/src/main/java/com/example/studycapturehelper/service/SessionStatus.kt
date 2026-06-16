@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 @Singleton
 class SessionStatus @Inject constructor() {
-    private val _state = MutableStateFlow(SessionState.STOPPED)
+    private val _state = MutableStateFlow<SessionState>(SessionState.STOPPED)
     val state: StateFlow<SessionState> = _state
 
     fun update(state: SessionState) {

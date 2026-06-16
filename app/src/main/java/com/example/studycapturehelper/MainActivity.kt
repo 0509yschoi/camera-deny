@@ -160,7 +160,7 @@ private fun CaptureScreen(
     val state by viewModel.sessionState.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val analyzeState by viewModel.analyzeState.collectAsState()
-    val running = state == SessionState.RUNNING
+    val running = state is SessionState.RUNNING
     var intervalValue by remember(settings.intervalSeconds) {
         mutableFloatStateOf(settings.intervalSeconds.toFloat())
     }
@@ -203,9 +203,9 @@ private fun CaptureScreen(
             ) {
                 Text(if (running) "Stop visible session" else "Start visible session")
             }
-            if (state == SessionState.ERROR) {
+            if (state is SessionState.ERROR) {
                 Spacer(Modifier.height(12.dp))
-                Text("Session stopped. Check USB camera and backend connection.")
+                Text("오류: ${(state as SessionState.ERROR).message}")
             }
             analyzeState?.let { result ->
                 Spacer(Modifier.height(16.dp))

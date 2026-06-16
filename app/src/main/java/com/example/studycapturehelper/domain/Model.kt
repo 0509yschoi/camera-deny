@@ -14,8 +14,8 @@ data class StudyAnalysis(
     val text: String,
 )
 
-enum class SessionState {
-    STOPPED,
-    RUNNING,
-    ERROR,
+sealed class SessionState {
+    object STOPPED : SessionState()
+    object RUNNING : SessionState()
+    data class ERROR(val message: String) : SessionState()
 }

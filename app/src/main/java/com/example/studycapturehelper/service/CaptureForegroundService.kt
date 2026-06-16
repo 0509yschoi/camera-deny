@@ -66,8 +66,9 @@ class CaptureForegroundService : LifecycleService() {
                     delay(intervalPolicy.delayMillis(settings.intervalSeconds, multiplier))
                 }
             }.onFailure { e ->
-                Log.e("CaptureSvc", "세션 오류: ${e.message}", e)
-                sessionStatus.update(SessionState.ERROR)
+                val msg = e.message ?: e.javaClass.simpleName
+                Log.e("CaptureSvc", "세션 오류: $msg", e)
+                sessionStatus.update(SessionState.ERROR(msg))
                 getSystemService(NotificationManager::class.java)
                     .notify(NotificationFactory.ERROR_ID, notifications.error())
                 stopSelf()
@@ -89,7 +90,7 @@ class CaptureForegroundService : LifecycleService() {
         captureJob?.cancel()
         speechOutput.stop()
         lifecycleScope.launch { runCatching { camera.disconnect() } }
-        if (sessionStatus.state.value == SessionState.RUNNING) {
+        if (sessionStatus.state.value is SessionState.RUNNING) {
             sessionStatus.update(SessionState.STOPPED)
         }
         super.onDestroy()
