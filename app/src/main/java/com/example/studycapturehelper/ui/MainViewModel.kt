@@ -39,6 +39,7 @@ class MainViewModel @Inject constructor(
         CaptureSettings(),
     )
     val sessionState: StateFlow<SessionState> = sessionStatus.state
+    val lastImageBytes: StateFlow<ByteArray?> = sessionStatus.lastImageBytes
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 

@@ -11,7 +11,14 @@ class SessionStatus @Inject constructor() {
     private val _state = MutableStateFlow<SessionState>(SessionState.STOPPED)
     val state: StateFlow<SessionState> = _state
 
+    private val _lastImageBytes = MutableStateFlow<ByteArray?>(null)
+    val lastImageBytes: StateFlow<ByteArray?> = _lastImageBytes
+
     fun update(state: SessionState) {
         _state.value = state
+    }
+
+    fun updateLastImage(bytes: ByteArray) {
+        _lastImageBytes.value = bytes
     }
 }

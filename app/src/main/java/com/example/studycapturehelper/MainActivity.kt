@@ -11,7 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,15 +30,22 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.studycapturehelper.domain.SessionState
 import com.example.studycapturehelper.domain.AppUpdate
@@ -160,6 +169,8 @@ private fun CaptureScreen(
     val state by viewModel.sessionState.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val analyzeState by viewModel.analyzeState.collectAsState()
+    val lastImageBytes by viewModel.lastImageBytes.collectAsState()
+    var showPreview by remember { mutableStateOf(false) }
     val running = state is SessionState.RUNNING
     var intervalValue by remember(settings.intervalSeconds) {
         mutableFloatStateOf(settings.intervalSeconds.toFloat())
@@ -207,6 +218,15 @@ private fun CaptureScreen(
                 Spacer(Modifier.height(12.dp))
                 Text("오류: ${(state as SessionState.ERROR).message}")
             }
+            if (lastImageBytes != null) {
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { showPreview = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("마지막 캡처 이미지 보기")
+                }
+            }
             analyzeState?.let { result ->
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider()
@@ -214,6 +234,30 @@ private fun CaptureScreen(
                 Text("분석 결과", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(result, style = MaterialTheme.typography.bodyLarge)
+            }
+
+            if (showPreview && lastImageBytes != null) {
+                Dialog(onDismissRequest = { showPreview = false }) {
+                    Box(
+                        Modifier.background(Color.Black).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val bitmap = remember(lastImageBytes) {
+                            BitmapFactory.decodeByteArray(lastImageBytes, 0, lastImageBytes!!.size)
+                        }
+                        bitmap?.let {
+                            Image(
+                                bitmap = it.asImageBitmap(),
+                                contentDescription = "캡처 이미지",
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        TextButton(
+                            onClick = { showPreview = false },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                        ) { Text("닫기", color = Color.White) }
+                    }
+                }
             }
             Spacer(Modifier.height(32.dp))
             HorizontalDivider()

@@ -3,6 +3,7 @@ package com.example.studycapturehelper.service
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.os.PowerManager
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -32,10 +33,13 @@ class CaptureForegroundService : LifecycleService() {
     @Inject lateinit var notifications: NotificationFactory
 
     private var captureJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         notifications.createChannel()
+        wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "StudyCapture::WakeLock")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -54,12 +58,15 @@ class CaptureForegroundService : LifecycleService() {
             notifications.active("Camera use is visible while this session runs."),
         )
         sessionStatus.update(SessionState.RUNNING)
+        wakeLock?.acquire(10 * 60 * 60 * 1000L) // 최대 10시간
         captureJob = lifecycleScope.launch {
             runCatching {
                 camera.connect()
                 while (true) {
                     val settings = settingsRepository.settings.first()
-                    val analysis = analyzer.analyze(camera.captureJpeg())
+                    val captured = camera.captureJpeg()
+                    sessionStatus.updateLastImage(captured.bytes)
+                    val analysis = analyzer.analyze(captured)
                     if (settings.speechEnabled) speechOutput.speak(analysis.text)
 
                     val multiplier = thermalPolicy.multiplier.first()
@@ -80,6 +87,7 @@ class CaptureForegroundService : LifecycleService() {
         captureJob?.cancel()
         captureJob = null
         speechOutput.stop()
+        wakeLock?.release()
         lifecycleScope.launch { runCatching { camera.disconnect() } }
         sessionStatus.update(SessionState.STOPPED)
         stopForeground(STOP_FOREGROUND_REMOVE)
