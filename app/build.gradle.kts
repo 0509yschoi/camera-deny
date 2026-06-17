@@ -117,6 +117,7 @@ dependencies {
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
 
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+    implementation("com.google.android.material:material:1.12.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
