@@ -80,15 +80,18 @@ class UvcCameraCapture @Inject constructor(
         val cam = checkNotNull(camera) { "connect()를 먼저 호출하세요." }
         val bytes = suspendCancellableCoroutine<ByteArray> { cont ->
             val cb = object : IPreviewDataCallBack {
-                override fun onPreviewData(
-                    data: ByteArray?,
-                    width: Int,
-                    height: Int,
-                    format: IPreviewDataCallBack.DataCallBackType,
-                ) {
+                override fun onPreviewData(data: ByteArray?, type: IPreviewDataCallBack.DataCallBackType) {
                     cam.removePreviewDataCallBack(this)
                     if (data == null || !cont.isActive) return
-                    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    // JPEG 타입이면 바로 사용, 아니면 ARGB 변환
+                    if (type == IPreviewDataCallBack.DataCallBackType.JPEG) {
+                        cont.resume(data)
+                        return
+                    }
+                    val request = cam.getCameraRequest() ?: return
+                    val w = request.previewWidth
+                    val h = request.previewHeight
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                     bmp.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(data))
                     val out = ByteArrayOutputStream()
                     bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
