@@ -26,6 +26,11 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         val installIntent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(downloadedUri, UpdateDownloadManager.APK_MIME_TYPE)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        runCatching {
+            context.startActivity(installIntent)
+        }
+
         val installPendingIntent = PendingIntent.getActivity(
             context,
             20,
@@ -46,7 +51,7 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("업데이트 다운로드 완료")
-                .setContentText("눌러서 새 버전을 설치하세요.")
+                .setContentText("설치 화면이 열리지 않으면 눌러서 설치하세요.")
                 .setContentIntent(installPendingIntent)
                 .setAutoCancel(true)
                 .build(),

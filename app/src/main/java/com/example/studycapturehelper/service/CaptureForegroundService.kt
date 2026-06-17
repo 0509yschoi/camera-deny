@@ -21,6 +21,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+private const val TAG = "CaptureSvc"
+
 @AndroidEntryPoint
 class CaptureForegroundService : LifecycleService() {
     @Inject lateinit var camera: CameraCapture
@@ -58,13 +60,17 @@ class CaptureForegroundService : LifecycleService() {
             notifications.active("Camera use is visible while this session runs."),
         )
         sessionStatus.update(SessionState.RUNNING)
-        wakeLock?.acquire(10 * 60 * 60 * 1000L) // 최대 10시간
+        wakeLock?.acquire(10 * 60 * 60 * 1000L)
         captureJob = lifecycleScope.launch {
             runCatching {
+                Log.d(TAG, "Connecting camera")
                 camera.connect()
+                Log.d(TAG, "Camera connected; capture loop started")
                 while (true) {
                     val settings = settingsRepository.settings.first()
+                    Log.d(TAG, "Capturing camera frame")
                     val captured = camera.captureJpeg()
+                    Log.d(TAG, "Camera frame captured: ${captured.bytes.size} bytes")
                     sessionStatus.updateLastImage(captured.bytes)
                     val analysis = analyzer.analyze(captured)
                     if (settings.speechEnabled) speechOutput.speak(analysis.text)
@@ -74,7 +80,7 @@ class CaptureForegroundService : LifecycleService() {
                 }
             }.onFailure { e ->
                 val msg = e.message ?: e.javaClass.simpleName
-                Log.e("CaptureSvc", "세션 오류: $msg", e)
+                Log.e(TAG, "Session error: $msg", e)
                 sessionStatus.update(SessionState.ERROR(msg))
                 getSystemService(NotificationManager::class.java)
                     .notify(NotificationFactory.ERROR_ID, notifications.error())

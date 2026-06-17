@@ -3,6 +3,7 @@ package com.example.studycapturehelper
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,15 +42,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
-import android.graphics.BitmapFactory
-import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
-import com.example.studycapturehelper.domain.SessionState
 import com.example.studycapturehelper.domain.AppUpdate
+import com.example.studycapturehelper.domain.SessionState
 import com.example.studycapturehelper.domain.UpdateState
 import com.example.studycapturehelper.service.CaptureForegroundService
 import com.example.studycapturehelper.ui.MainViewModel
@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
         when (intent.action) {
             Intent.ACTION_SEND -> {
                 if (intent.type?.startsWith("image/") == true) {
-                    val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
+                    val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                     uri?.let { viewModel.analyzeSharedImage(it) }
                 }
             }
@@ -187,7 +187,7 @@ private fun CaptureScreen(
         ) {
             Text("Study Capture Helper", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(24.dp))
-            Text("Interval: ${intervalValue.toInt()} seconds")
+            Text("촬영 간격: ${intervalValue.toInt()}초")
             Slider(
                 value = intervalValue,
                 onValueChange = { intervalValue = it },
@@ -200,7 +200,7 @@ private fun CaptureScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Read analysis aloud")
+                Text("분석 결과 음성 읽기")
                 Switch(
                     checked = settings.speechEnabled,
                     onCheckedChange = viewModel::setSpeechEnabled,
@@ -212,20 +212,19 @@ private fun CaptureScreen(
                 onClick = if (running) onStop else onStart,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (running) "Stop visible session" else "Start visible session")
+                Text(if (running) "세션 중지" else "세션 시작")
             }
             if (state is SessionState.ERROR) {
                 Spacer(Modifier.height(12.dp))
                 Text("오류: ${(state as SessionState.ERROR).message}")
             }
-            if (lastImageBytes != null) {
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = { showPreview = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("마지막 캡처 이미지 보기")
-                }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { showPreview = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = lastImageBytes != null,
+            ) {
+                Text("화면 확인")
             }
             analyzeState?.let { result ->
                 Spacer(Modifier.height(16.dp))
@@ -262,7 +261,7 @@ private fun CaptureScreen(
             Spacer(Modifier.height(32.dp))
             HorizontalDivider()
             Spacer(Modifier.height(20.dp))
-            Text("앱 업데이트", style = MaterialTheme.typography.titleMedium)
+            Text("업데이트", style = MaterialTheme.typography.titleMedium)
             Text(
                 "현재 버전 ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodySmall,
@@ -304,7 +303,7 @@ private fun UpdateSection(
         }
         is UpdateState.Downloading -> {
             Text("${state.update.versionName} 다운로드 중")
-            Text("완료 알림을 눌러 설치하세요.", style = MaterialTheme.typography.bodySmall)
+            Text("다운로드가 끝나면 설치 화면이 자동으로 열립니다.", style = MaterialTheme.typography.bodySmall)
         }
         is UpdateState.Error -> {
             Text(state.message)
