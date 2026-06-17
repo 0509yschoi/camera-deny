@@ -80,19 +80,30 @@ class UvcCameraCapture @Inject constructor(
         val cam = checkNotNull(camera) { "connect()를 먼저 호출하세요." }
         val bytes = suspendCancellableCoroutine<ByteArray> { cont ->
             val cb = object : IPreviewDataCallBack {
-                override fun onPreviewData(data: ByteArray?, type: IPreviewDataCallBack.DataCallBackType) {
+                override fun onPreviewData(
+                    data: ByteArray?,
+                    width: Int,
+                    height: Int,
+                    format: IPreviewDataCallBack.DataFormat,
+                ) {
                     cam.removePreviewDataCallBack(this)
                     if (data == null || !cont.isActive) return
-                    // JPEG 타입이면 바로 사용, 아니면 ARGB 변환
-                    if (type == IPreviewDataCallBack.DataCallBackType.JPEG) {
-                        cont.resume(data)
-                        return
+                    val bmp = when (format) {
+                        IPreviewDataCallBack.DataFormat.NV21 -> {
+                            val yuvImage = android.graphics.YuvImage(
+                                data, android.graphics.ImageFormat.NV21, width, height, null,
+                            )
+                            val out = ByteArrayOutputStream()
+                            yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 95, out)
+                            cont.resume(out.toByteArray())
+                            return
+                        }
+                        IPreviewDataCallBack.DataFormat.RGBA -> {
+                            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { b ->
+                                b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(data))
+                            }
+                        }
                     }
-                    val request = cam.getCameraRequest() ?: return
-                    val w = request.previewWidth
-                    val h = request.previewHeight
-                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    bmp.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(data))
                     val out = ByteArrayOutputStream()
                     bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
                     bmp.recycle()
