@@ -1,10 +1,16 @@
 package com.example.studycapturehelper.data
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.os.Build
+import android.os.Handler
 import android.util.Log
 import android.view.Surface
 import com.example.studycapturehelper.domain.CameraCapture
@@ -37,6 +43,7 @@ class UvcCameraCapture @Inject constructor(
     private var surface: Surface? = null
     private var camera: CameraUVC? = null
     private var cameraClient: MultiCameraClient? = null
+    private val receiverSafeContext = ReceiverSafeContext(context)
 
     override suspend fun connect() {
         val usbDevice = findUvcDevice()
@@ -186,7 +193,7 @@ class UvcCameraCapture @Inject constructor(
         withTimeout(10_000) {
             suspendCancellableCoroutine { cont ->
                 val client = MultiCameraClient(
-                    context,
+                    receiverSafeContext,
                     object : IDeviceConnectCallBack {
                         override fun onAttachDev(dev: UsbDevice?) {
                             Log.d(TAG, "USB attached: ${dev?.deviceName}")
@@ -249,5 +256,34 @@ class UvcCameraCapture @Inject constructor(
         return a.deviceName == b.deviceName &&
             a.vendorId == b.vendorId &&
             a.productId == b.productId
+    }
+}
+
+private class ReceiverSafeContext(base: Context) : ContextWrapper(base) {
+    override fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter?): Intent? {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            super.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            super.registerReceiver(receiver, filter)
+        }
+    }
+
+    override fun registerReceiver(
+        receiver: BroadcastReceiver?,
+        filter: IntentFilter?,
+        broadcastPermission: String?,
+        scheduler: Handler?,
+    ): Intent? {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            super.registerReceiver(
+                receiver,
+                filter,
+                broadcastPermission,
+                scheduler,
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+        } else {
+            super.registerReceiver(receiver, filter, broadcastPermission, scheduler)
+        }
     }
 }
