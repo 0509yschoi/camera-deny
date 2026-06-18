@@ -1,25 +1,21 @@
 package com.example.studycapturehelper.data
 
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
-import android.os.Build
 import android.util.Log
 import android.view.Surface
-import androidx.core.content.ContextCompat
 import com.example.studycapturehelper.domain.CameraCapture
 import com.example.studycapturehelper.domain.CapturedImage
 import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.callback.ICameraStateCallBack
+import com.jiangdg.ausbc.callback.IDeviceConnectCallBack
 import com.jiangdg.ausbc.callback.IPreviewDataCallBack
 import com.jiangdg.ausbc.camera.CameraUVC
 import com.jiangdg.ausbc.camera.bean.CameraRequest
+import com.jiangdg.usb.USBMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
@@ -28,9 +24,9 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 
 private const val TAG = "UvcCameraCapture"
-private const val ACTION_USB_PERMISSION = "com.example.studycapturehelper.USB_PERMISSION"
 
 @Singleton
 class UvcCameraCapture @Inject constructor(
@@ -40,21 +36,19 @@ class UvcCameraCapture @Inject constructor(
     private var surfaceTexture: SurfaceTexture? = null
     private var surface: Surface? = null
     private var camera: CameraUVC? = null
+    private var cameraClient: MultiCameraClient? = null
 
     override suspend fun connect() {
         val usbDevice = findUvcDevice()
             ?: error("USB camera not found. Check the OTG cable, camera power, and UVC support.")
 
-        val mgr = context.getSystemService(Context.USB_SERVICE) as UsbManager
-        if (!mgr.hasPermission(usbDevice)) {
-            Log.d(TAG, "Requesting USB permission for ${usbDevice.deviceName}")
-            requestUsbPermission(mgr, usbDevice)
-        }
+        val ctrlBlock = awaitUsbControlBlock(usbDevice)
 
         val st = SurfaceTexture(0).also { surfaceTexture = it }
         val sf = Surface(st).also { surface = it }
 
         val cam = CameraUVC(context, usbDevice)
+        cam.setUsbControlBlock(ctrlBlock)
         cam.setCameraStateCallBack(object : ICameraStateCallBack {
             override fun onCameraState(
                 self: MultiCameraClient.ICamera,
@@ -140,6 +134,9 @@ class UvcCameraCapture @Inject constructor(
     override suspend fun disconnect() {
         camera?.closeCamera()
         camera = null
+        cameraClient?.unRegister()
+        cameraClient?.destroy()
+        cameraClient = null
         surface?.release()
         surface = null
         surfaceTexture?.release()
@@ -185,44 +182,72 @@ class UvcCameraCapture @Inject constructor(
         }
     }
 
-    private suspend fun requestUsbPermission(mgr: UsbManager, device: UsbDevice) {
-        suspendCancellableCoroutine<Unit> { cont ->
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context, intent: Intent) {
-                    if (intent.action != ACTION_USB_PERMISSION) return
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    runCatching { context.unregisterReceiver(this) }
-                    if (!cont.isActive) return
-                    if (granted) {
-                        cont.resume(Unit)
-                    } else {
-                        cont.resumeWithException(
-                            SecurityException("USB permission denied for ${device.deviceName}"),
-                        )
+    private suspend fun awaitUsbControlBlock(device: UsbDevice): USBMonitor.UsbControlBlock =
+        withTimeout(10_000) {
+            suspendCancellableCoroutine { cont ->
+                val client = MultiCameraClient(
+                    context,
+                    object : IDeviceConnectCallBack {
+                        override fun onAttachDev(dev: UsbDevice?) {
+                            Log.d(TAG, "USB attached: ${dev?.deviceName}")
+                        }
+
+                        override fun onDetachDec(dev: UsbDevice?) {
+                            if (dev == null) return
+                            if (isSameDevice(dev, device) && cont.isActive) {
+                                cont.resumeWithException(
+                                    IllegalStateException("USB camera detached before connection."),
+                                )
+                            }
+                        }
+
+                        override fun onConnectDev(
+                            dev: UsbDevice?,
+                            ctrlBlock: USBMonitor.UsbControlBlock?,
+                        ) {
+                            if (dev == null || ctrlBlock == null) return
+                            if (!isSameDevice(dev, device) || !cont.isActive) return
+                            Log.d(TAG, "USB control block ready for ${dev.deviceName}")
+                            cont.resume(ctrlBlock)
+                        }
+
+                        override fun onDisConnectDec(
+                            dev: UsbDevice?,
+                            ctrlBlock: USBMonitor.UsbControlBlock?,
+                        ) {
+                            Log.d(TAG, "USB disconnected: ${dev?.deviceName}")
+                        }
+
+                        override fun onCancelDev(dev: UsbDevice?) {
+                            if (dev == null) return
+                            if (isSameDevice(dev, device) && cont.isActive) {
+                                cont.resumeWithException(
+                                    SecurityException("USB permission denied for ${dev.deviceName}"),
+                                )
+                            }
+                        }
+                    },
+                )
+                cameraClient = client
+                client.register()
+                cont.invokeOnCancellation {
+                    if (cameraClient === client) {
+                        client.unRegister()
+                        client.destroy()
+                        cameraClient = null
                     }
                 }
+                if (!client.requestPermission(device) && cont.isActive) {
+                    cont.resumeWithException(
+                        IllegalStateException("USB monitor is not registered."),
+                    )
+                }
             }
-            val filter = IntentFilter(ACTION_USB_PERMISSION)
-            if (Build.VERSION.SDK_INT >= 33) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                ContextCompat.registerReceiver(
-                    context,
-                    receiver,
-                    filter,
-                    ContextCompat.RECEIVER_NOT_EXPORTED,
-                )
-            }
-            cont.invokeOnCancellation { runCatching { context.unregisterReceiver(receiver) } }
-
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-            val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
-            val permissionIntent = PendingIntent.getBroadcast(context, 0, intent, flags)
-            mgr.requestPermission(device, permissionIntent)
         }
+
+    private fun isSameDevice(a: UsbDevice, b: UsbDevice): Boolean {
+        return a.deviceName == b.deviceName &&
+            a.vendorId == b.vendorId &&
+            a.productId == b.productId
     }
 }
