@@ -136,7 +136,16 @@ Keep explanations short. The app only needs enough context to choose the likely 
 - `2024 국가직 9급 행정법총론 해설 김대근.pdf`: imported 20 questions.
 - `2025 국가직 9급 행정법총론 해설 유휘운.pdf`: imported 20 questions.
 - `9급지방직공무원행정법총론20250621(교사용).pdf`: imported 20 questions.
-- `9급지방직공무원행정법총론20240622(교사용).pdf`: imported 20 questions.
+- `9급지방직공무원행정법총론20240622(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20230610(교사용) (1).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20220618(교사용) (1).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20210605(교사용) (1).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20200613(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20190615(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20180519(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20171216(교사용) (1).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20170617(교사용) (1).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20240622(교사용).pdf`: replaced by the HWP import for the same exam.
 - `2026 국가직 9급 행정법총론 해설 공기출.pdf`: not imported yet because the provided PDF text is mainly generated explanation text and does not contain clean question/choice source text.
 - `2023 지방직 9급 행정법총론 해설 이승철.pdf`: not imported yet because it is image-based and needs OCR before structured conversion.
 - `2024 국가직 9급 행정법총론 해설 이승철.pdf`: not imported because it is image-based and needs OCR before structured conversion.

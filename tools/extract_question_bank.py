@@ -105,9 +105,6 @@ def trim_to_question_area(block: str) -> str:
     marker = re.search(r"\[\d{1,2}번\s*해설\]", block)
     if marker:
         block = block[: marker.start()]
-    marker = re.search(r"(?:\n|\s)(?:①|ㄱ\.)\s*[○×]", block)
-    if marker:
-        block = block[: marker.start()]
     answer_marker = re.search(r"\n\s*정답\s*[①②③④⑤12345]", block)
     if answer_marker:
         block = block[: answer_marker.start()]
