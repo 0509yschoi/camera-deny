@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 private const val TAG = "CaptureSvc"
 
@@ -57,23 +58,31 @@ class CaptureForegroundService : LifecycleService() {
 
     private fun startSession() {
         if (captureJob?.isActive == true) return
-        startForeground(
-            NotificationFactory.ACTIVE_ID,
-            notifications.active("Camera use is visible while this session runs."),
-        )
+        sessionStatus.updateProgress("Starting session...")
+        runCatching {
+            startForeground(
+                NotificationFactory.ACTIVE_ID,
+                notifications.active("Camera use is visible while this session runs."),
+            )
+        }.onFailure { error ->
+            failSession("Foreground service failed", error)
+            stopSelf()
+            return
+        }
         sessionStatus.update(SessionState.RUNNING)
         wakeLock?.acquire(10 * 60 * 60 * 1000L)
         captureJob = lifecycleScope.launch {
             runCatching {
                 Log.d(TAG, "Connecting camera")
-                camera.connect()
+                sessionStatus.updateProgress("Connecting USB camera...")
+                withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
                 Log.d(TAG, "Camera connected; capture loop started")
                 while (true) {
                     val settings = settingsRepository.settings.first()
                     Log.d(TAG, "Capturing camera burst")
-                    sessionStatus.updateProgress("Capturing 5 frames...")
+                    sessionStatus.updateProgress("USB camera connected. Capturing 5 frames...")
                     val captureStartedAt = SystemClock.elapsedRealtime()
-                    val captured = captureBurst()
+                    val captured = withTimeout(CAPTURE_TIMEOUT_MS) { captureBurst() }
                     val captureMs = SystemClock.elapsedRealtime() - captureStartedAt
                     Log.d(TAG, "Camera burst captured: ${captured.size} frames in ${captureMs}ms")
                     captured.lastOrNull()?.let { sessionStatus.updateLastImage(it.bytes) }
@@ -91,11 +100,8 @@ class CaptureForegroundService : LifecycleService() {
                     delay(intervalPolicy.delayMillis(settings.intervalSeconds, multiplier))
                 }
             }.onFailure { e ->
-                val msg = e.message ?: e.javaClass.simpleName
-                Log.e(TAG, "Session error: $msg", e)
-                sessionStatus.update(SessionState.ERROR(msg))
-                getSystemService(NotificationManager::class.java)
-                    .notify(NotificationFactory.ERROR_ID, notifications.error())
+                failSession("Session failed", e)
+                runCatching { camera.disconnect() }
                 stopSelf()
             }
         }
@@ -117,8 +123,19 @@ class CaptureForegroundService : LifecycleService() {
         wakeLock?.release()
         lifecycleScope.launch { runCatching { camera.disconnect() } }
         sessionStatus.update(SessionState.STOPPED)
+        sessionStatus.updateProgress(null)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun failSession(prefix: String, error: Throwable) {
+        val msg = error.message ?: error.javaClass.simpleName
+        val fullMessage = "$prefix: $msg"
+        Log.e(TAG, fullMessage, error)
+        sessionStatus.update(SessionState.ERROR(fullMessage))
+        sessionStatus.updateProgress(fullMessage)
+        getSystemService(NotificationManager::class.java)
+            .notify(NotificationFactory.ERROR_ID, notifications.error())
     }
 
     override fun onDestroy() {
@@ -136,5 +153,7 @@ class CaptureForegroundService : LifecycleService() {
         const val ACTION_STOP = "com.example.studycapturehelper.STOP"
         private const val BURST_FRAME_COUNT = 5
         private const val BURST_FRAME_DELAY_MS = 150L
+        private const val CAMERA_CONNECT_TIMEOUT_MS = 10_000L
+        private const val CAPTURE_TIMEOUT_MS = 8_000L
     }
 }

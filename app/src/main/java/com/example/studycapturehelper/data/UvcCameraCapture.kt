@@ -29,13 +29,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "UvcCameraCapture"
 private const val CAMERA_WARMUP_MS = 800L
+private const val CAMERA_OPEN_TIMEOUT_MS = 10_000L
 
 @Singleton
 class UvcCameraCapture @Inject constructor(
@@ -75,22 +75,34 @@ class UvcCameraCapture @Inject constructor(
             .setPreviewHeight(1080)
             .create()
 
-        camera = suspendCoroutine { cont ->
-            cam.setCameraStateCallBack(object : ICameraStateCallBack {
-                override fun onCameraState(
-                    self: MultiCameraClient.ICamera,
-                    code: ICameraStateCallBack.State,
-                    msg: String?,
-                ) {
-                    when (code) {
-                        ICameraStateCallBack.State.OPENED -> cont.resume(cam)
-                        ICameraStateCallBack.State.ERROR ->
-                            cont.resumeWithException(IllegalStateException("Camera error: $msg"))
-                        else -> {}
+        camera = withTimeout(CAMERA_OPEN_TIMEOUT_MS) {
+            suspendCancellableCoroutine { cont ->
+                cam.setCameraStateCallBack(object : ICameraStateCallBack {
+                    override fun onCameraState(
+                        self: MultiCameraClient.ICamera,
+                        code: ICameraStateCallBack.State,
+                        msg: String?,
+                    ) {
+                        when (code) {
+                            ICameraStateCallBack.State.OPENED -> {
+                                if (cont.isActive) cont.resume(cam)
+                            }
+                            ICameraStateCallBack.State.ERROR -> {
+                                if (cont.isActive) {
+                                    cont.resumeWithException(
+                                        IllegalStateException("Camera error: $msg"),
+                                    )
+                                }
+                            }
+                            else -> {}
+                        }
                     }
+                })
+                cont.invokeOnCancellation {
+                    runCatching { cam.closeCamera() }
                 }
-            })
-            cam.openCamera(sf, request)
+                cam.openCamera(sf, request)
+            }
         }
         // Give AE/AWB time to settle before the first capture
         delay(CAMERA_WARMUP_MS)
