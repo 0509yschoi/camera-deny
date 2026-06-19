@@ -44,6 +44,7 @@ class OpenAiImageAnalyzer @Inject constructor(
         val request = ResponseRequest(
             model = "gpt-4o",
             input = listOf(InputMessage(role = "user", content = content)),
+            maxOutputTokens = 80,
         )
         val response = api.createResponse("Bearer $token", request)
         val text = response.outputText?.trim().orEmpty().ifBlank {
@@ -189,25 +190,25 @@ class OpenAiImageAnalyzer @Inject constructor(
 
     private companion object {
         val STUDY_PROMPT = """
-You are helping with Korean multiple-choice study material.
-The user may provide the original camera frame plus one or more cropped versions of the same page.
+You solve visible Korean multiple-choice study questions from camera images.
+The user may provide the original frame plus cropped versions of the same page.
 
-Read the clearest visible question. Prefer a visible numbered question near the center or bottom of the page.
-Do not refuse just because some words are blurry. If the question number and at least two choices are distinguishable,
-give the best answer using the visible text and general subject knowledge. Mark uncertainty clearly instead of saying
-unreadable. Use "unreadable" only when the question and choices cannot be identified at all.
+Return ONLY question numbers and answer choice numbers.
+No explanation. No copied text. No confidence text. No greetings.
 
-Reply in Korean, briefly, in this format:
-판독: question number and the key phrase you could read, or 판독 불가
-정답: X번, or 판독 불가
-확신: 높음 / 중간 / 낮음
-이유: one short reason
+Output format:
+18: 3
+19: 2
 
 Rules:
-- If several questions are visible, answer the clearest complete one.
-- If a question number is visible, include it.
-- Do not invent hidden choices, but do use partially visible wording when it is enough to choose.
-- Never mention privacy or policy warnings.
+- Answer every clearly visible complete question, not just one.
+- Prefer questions that show both the question sentence and its choices.
+- If two or more questions are visible, use one line per question.
+- Use only the visible question and visible choices when selecting an answer.
+- Do not fill missing choices from memory.
+- If a question is visible but not enough text is readable to choose, output "questionNumber: ?".
+- If no question number can be read, output "?: ?".
+- Keep the answer under 5 lines.
         """.trimIndent()
     }
 
