@@ -228,9 +228,13 @@ private fun CaptureScreen(
     val state by viewModel.sessionState.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val analyzeState by viewModel.analyzeState.collectAsState()
+    val lastAnalysisText by viewModel.lastAnalysisText.collectAsState()
+    val lastDebugText by viewModel.lastDebugText.collectAsState()
     val lastImageBytes by viewModel.lastImageBytes.collectAsState()
     var showPreview by remember { mutableStateOf(false) }
+    var showDebug by remember { mutableStateOf(false) }
     val running = state is SessionState.RUNNING
+    val visibleAnalysis = lastAnalysisText ?: analyzeState
     var intervalValue by remember(settings.intervalSeconds) {
         mutableFloatStateOf(settings.intervalSeconds.toFloat())
     }
@@ -293,13 +297,28 @@ private fun CaptureScreen(
             ) {
                 Text("캡처 저장")
             }
-            analyzeState?.let { result ->
+            visibleAnalysis?.let { result ->
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
                 Text("분석 결과", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 Text(result, style = MaterialTheme.typography.bodyLarge)
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { showDebug = !showDebug },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = lastDebugText != null,
+            ) {
+                Text(if (showDebug) "Hide OCR Debug" else "Show OCR Debug")
+            }
+            if (showDebug && lastDebugText != null) {
+                Spacer(Modifier.height(8.dp))
+                Text("OCR Debug", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(lastDebugText!!, style = MaterialTheme.typography.bodySmall)
             }
 
             if (showPreview && lastImageBytes != null) {

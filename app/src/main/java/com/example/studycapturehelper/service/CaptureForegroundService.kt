@@ -73,6 +73,7 @@ class CaptureForegroundService : LifecycleService() {
                     Log.d(TAG, "Camera burst captured: ${captured.size} frames")
                     captured.lastOrNull()?.let { sessionStatus.updateLastImage(it.bytes) }
                     val analysis = analyzer.analyze(captured)
+                    sessionStatus.updateAnalysis(analysis.text, analysis.debugText)
                     if (settings.speechEnabled) speechOutput.speak(analysis.text)
 
                     val multiplier = thermalPolicy.multiplier.first()

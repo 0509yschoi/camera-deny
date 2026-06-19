@@ -45,7 +45,7 @@ class OpenAiImageAnalyzer @Inject constructor(
         val request = ResponseRequest(
             model = "gpt-4o",
             input = listOf(InputMessage(role = "user", content = content)),
-            maxOutputTokens = 320,
+            maxOutputTokens = 900,
         )
         val response = api.createResponse("Bearer $token", request)
         val text = response.outputText?.trim().orEmpty().ifBlank {
@@ -55,7 +55,10 @@ class OpenAiImageAnalyzer @Inject constructor(
                 .filter { it.isNotBlank() }
                 .joinToString("\n")
         }
-        return StudyAnalysis(formatAnswerOnly(text))
+        return StudyAnalysis(
+            text = formatAnswerOnly(text),
+            debugText = text.ifBlank { null },
+        )
     }
 
     private fun CapturedImage.toInputContent(): InputContent {
@@ -321,13 +324,18 @@ You solve visible Korean multiple-choice study questions from camera images.
 The user provides one reference frame plus up to five cropped reading aids from consecutive frames of the same page.
 Use all reading aids together. Combine the sharpest visible text from different frames before choosing answers.
 
-Return ONLY question numbers and answer choice numbers.
-No explanation. No copied text. No confidence text. No greetings.
-Use ASCII digits and a colon. Do not use Korean words between the two numbers.
+Return two sections: ANSWERS and OCR_DEBUG.
+Keep ANSWERS answer-only. OCR_DEBUG is for troubleshooting the recognized text.
 
 Output format:
+ANSWERS:
 18: 3
 19: 2
+OCR_DEBUG:
+18 question: ...
+18 choices: 1=... / 2=... / 3=... / 4=...
+19 question: ...
+19 choices: 1=... / 2=... / 3=... / 4=...
 
 Rules:
 - Answer every clearly visible complete question, not just one.
@@ -342,7 +350,8 @@ Rules:
 - If the original and enhanced images disagree, trust the image where the printed Korean text is sharper.
 - If a question is visible but not enough text is readable to choose, output "questionNumber: ?".
 - If no question number can be read, output "?: ?".
-- Keep the answer under 5 lines.
+- In OCR_DEBUG, mark uncertain characters with [?] instead of silently guessing.
+- Keep ANSWERS under 5 lines.
         """.trimIndent()
     }
 

@@ -12,6 +12,7 @@ data class CapturedImage(
 
 data class StudyAnalysis(
     val text: String,
+    val debugText: String? = null,
 )
 
 sealed class SessionState {

@@ -31,7 +31,7 @@ class MainViewModel @Inject constructor(
     private val appUpdateRepository: AppUpdateRepository,
     private val imageAnalyzer: ImageAnalyzer,
     private val speechOutput: SpeechOutput,
-    sessionStatus: SessionStatus,
+    private val sessionStatus: SessionStatus,
 ) : ViewModel() {
     val settings: StateFlow<CaptureSettings> = settingsRepository.settings.stateIn(
         viewModelScope,
@@ -40,6 +40,8 @@ class MainViewModel @Inject constructor(
     )
     val sessionState: StateFlow<SessionState> = sessionStatus.state
     val lastImageBytes: StateFlow<ByteArray?> = sessionStatus.lastImageBytes
+    val lastAnalysisText: StateFlow<String?> = sessionStatus.lastAnalysisText
+    val lastDebugText: StateFlow<String?> = sessionStatus.lastDebugText
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
@@ -79,6 +81,7 @@ class MainViewModel @Inject constructor(
                 val image = CapturedImage(bytes = bytes, mimeType = "image/jpeg")
                 val result = imageAnalyzer.analyze(image)
                 _analyzeState.value = result.text
+                sessionStatus.updateAnalysis(result.text, result.debugText)
                 speechOutput.speak(result.text)
             }.onFailure {
                 _analyzeState.value = "오류: ${it.message}"
