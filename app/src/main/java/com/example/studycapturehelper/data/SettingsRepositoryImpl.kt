@@ -23,6 +23,7 @@ class SettingsRepositoryImpl @Inject constructor(
         CaptureSettings(
             intervalSeconds = values[INTERVAL_SECONDS] ?: 50,
             speechEnabled = values[SPEECH_ENABLED] ?: true,
+            dndEnabled = values[DND_ENABLED] ?: false,
         )
     }
 
@@ -34,8 +35,13 @@ class SettingsRepositoryImpl @Inject constructor(
         context.dataStore.edit { it[SPEECH_ENABLED] = enabled }
     }
 
+    override suspend fun setDndEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[DND_ENABLED] = enabled }
+    }
+
     private companion object {
         val INTERVAL_SECONDS = intPreferencesKey("interval_seconds")
         val SPEECH_ENABLED = booleanPreferencesKey("speech_enabled")
+        val DND_ENABLED = booleanPreferencesKey("dnd_enabled")
     }
 }

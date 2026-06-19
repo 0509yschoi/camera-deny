@@ -58,6 +58,10 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setSpeechEnabled(enabled) }
     }
 
+    fun setDndEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setDndEnabled(enabled) }
+    }
+
     fun checkForUpdate() {
         if (_updateState.value == UpdateState.Checking) return
         viewModelScope.launch {

@@ -39,6 +39,7 @@ class CaptureForegroundService : LifecycleService() {
 
     private var captureJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var previousInterruptionFilter: Int? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -73,12 +74,15 @@ class CaptureForegroundService : LifecycleService() {
         wakeLock?.acquire(10 * 60 * 60 * 1000L)
         captureJob = lifecycleScope.launch {
             runCatching {
+                val initialSettings = settingsRepository.settings.first()
+                applyDoNotDisturbIfNeeded(initialSettings.dndEnabled)
                 Log.d(TAG, "Connecting camera")
                 sessionStatus.updateProgress("Connecting USB camera...")
                 withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
                 Log.d(TAG, "Camera connected; capture loop started")
                 while (true) {
                     val settings = settingsRepository.settings.first()
+                    applyDoNotDisturbIfNeeded(settings.dndEnabled)
                     Log.d(TAG, "Capturing camera burst")
                     sessionStatus.updateProgress("USB camera connected. Capturing 5 frames...")
                     val captureStartedAt = SystemClock.elapsedRealtime()
@@ -101,6 +105,7 @@ class CaptureForegroundService : LifecycleService() {
                 }
             }.onFailure { e ->
                 failSession("Session failed", e)
+                restoreDoNotDisturb()
                 runCatching { camera.disconnect() }
                 stopSelf()
             }
@@ -120,6 +125,7 @@ class CaptureForegroundService : LifecycleService() {
         captureJob?.cancel()
         captureJob = null
         speechOutput.stop()
+        restoreDoNotDisturb()
         wakeLock?.release()
         lifecycleScope.launch { runCatching { camera.disconnect() } }
         sessionStatus.update(SessionState.STOPPED)
@@ -146,6 +152,33 @@ class CaptureForegroundService : LifecycleService() {
             sessionStatus.update(SessionState.STOPPED)
         }
         super.onDestroy()
+    }
+
+    private fun applyDoNotDisturbIfNeeded(enabled: Boolean) {
+        if (!enabled) {
+            restoreDoNotDisturb()
+            return
+        }
+        val manager = getSystemService(NotificationManager::class.java)
+        if (!manager.isNotificationPolicyAccessGranted) {
+            sessionStatus.updateProgress("DND permission not granted. Continuing without Do Not Disturb.")
+            return
+        }
+        if (previousInterruptionFilter == null) {
+            previousInterruptionFilter = manager.currentInterruptionFilter
+        }
+        if (manager.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_NONE) {
+            manager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+        }
+    }
+
+    private fun restoreDoNotDisturb() {
+        val previous = previousInterruptionFilter ?: return
+        val manager = getSystemService(NotificationManager::class.java)
+        if (manager.isNotificationPolicyAccessGranted) {
+            runCatching { manager.setInterruptionFilter(previous) }
+        }
+        previousInterruptionFilter = null
     }
 
     companion object {

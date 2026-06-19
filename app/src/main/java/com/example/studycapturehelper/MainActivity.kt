@@ -1,6 +1,7 @@
 package com.example.studycapturehelper
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -48,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
                     onCheckUpdate = viewModel::checkForUpdate,
                     onDownloadUpdate = ::requestInstallPermissionAndDownload,
                     onSaveImage = ::saveCapturedImage,
+                    onOpenDndSettings = ::openDndSettings,
                 )
             }
         }
@@ -138,6 +141,10 @@ class MainActivity : ComponentActivity() {
 
     private fun stopSession() {
         stopService(Intent(this, CaptureForegroundService::class.java))
+    }
+
+    private fun openDndSettings() {
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
     }
 
     private fun saveCapturedImage(bytes: ByteArray) {
@@ -223,7 +230,9 @@ private fun CaptureScreen(
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: (AppUpdate) -> Unit,
     onSaveImage: (ByteArray) -> Unit,
+    onOpenDndSettings: () -> Unit,
 ) {
+    val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val state by viewModel.sessionState.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
@@ -236,6 +245,8 @@ private fun CaptureScreen(
     var showDebug by remember { mutableStateOf(false) }
     val running = state is SessionState.RUNNING
     val visibleAnalysis = lastAnalysisText ?: analyzeState
+    val dndAccessGranted = context.getSystemService(NotificationManager::class.java)
+        .isNotificationPolicyAccessGranted
     var intervalValue by remember(settings.intervalSeconds) {
         mutableFloatStateOf(settings.intervalSeconds.toFloat())
     }
@@ -270,6 +281,29 @@ private fun CaptureScreen(
                     onCheckedChange = viewModel::setSpeechEnabled,
                     enabled = !running,
                 )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("세션 중 방해금지")
+                Switch(
+                    checked = settings.dndEnabled,
+                    onCheckedChange = viewModel::setDndEnabled,
+                    enabled = !running,
+                )
+            }
+            if (settings.dndEnabled && !dndAccessGranted) {
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = onOpenDndSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !running,
+                ) {
+                    Text("방해금지 권한 설정")
+                }
             }
             Spacer(Modifier.height(24.dp))
             Button(

@@ -6,6 +6,7 @@ interface SettingsRepository {
     val settings: Flow<CaptureSettings>
     suspend fun setIntervalSeconds(seconds: Int)
     suspend fun setSpeechEnabled(enabled: Boolean)
+    suspend fun setDndEnabled(enabled: Boolean)
 }
 
 interface CameraCapture {

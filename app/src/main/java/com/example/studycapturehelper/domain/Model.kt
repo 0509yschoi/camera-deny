@@ -3,6 +3,7 @@ package com.example.studycapturehelper.domain
 data class CaptureSettings(
     val intervalSeconds: Int = 50,
     val speechEnabled: Boolean = true,
+    val dndEnabled: Boolean = false,
 )
 
 data class CapturedImage(
