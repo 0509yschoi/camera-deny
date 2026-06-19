@@ -51,14 +51,34 @@ class OpenAiImageAnalyzer @Inject constructor(
             ),
             maxOutputTokens = 500,
         )
+        val verifyText = createTextResponse(
+            token = token,
+            content = listOf(
+                InputContent(type = "input_text", text = VERIFY_PROMPT),
+                InputContent(
+                    type = "input_text",
+                    text = buildString {
+                        appendLine("OCR_TEXT:")
+                        appendLine(ocrText)
+                        appendLine()
+                        appendLine("PROPOSED_SOLUTION:")
+                        append(solveText)
+                    },
+                ),
+            ),
+            maxOutputTokens = 700,
+        )
         return StudyAnalysis(
-            text = formatAnswerOnly(solveText),
+            text = formatAnswerOnly(verifyText),
             debugText = buildString {
                 appendLine("OCR_RESULT:")
                 appendLine(ocrText.ifBlank { "(empty)" })
                 appendLine()
                 appendLine("SOLVE_RESULT:")
-                append(solveText.ifBlank { "(empty)" })
+                appendLine(solveText.ifBlank { "(empty)" })
+                appendLine()
+                appendLine("VERIFY_RESULT:")
+                append(verifyText.ifBlank { "(empty)" })
             },
         )
     }
@@ -393,6 +413,35 @@ Rules:
 - If the ask direction is unknown, output "questionNumber: ?".
 - If two or more choices are plausible, output "questionNumber: ?".
 - If any required choice text is missing or mostly "[?]", output "questionNumber: ?".
+- Keep ANSWERS answer-only and under 5 lines.
+        """.trimIndent()
+
+        val VERIFY_PROMPT = """
+You are a strict verifier for Korean administrative-law multiple-choice answers.
+The user provides OCR text and a proposed solution. Re-check the legal reasoning from scratch.
+
+Return two sections: ANSWERS and VERIFY_DEBUG.
+
+Output format:
+ANSWERS:
+18: 2
+19: ?
+VERIFY_DEBUG:
+18 proposed: 4
+18 final: 2
+18 reason: short rule-based reason
+19 proposed: ?
+19 final: ?
+19 reason: insufficient OCR
+
+Rules:
+- Use only OCR text for the question and choices.
+- Do not trust the proposed solution. It may be wrong.
+- Re-evaluate each choice independently.
+- For questions asking for an incorrect/exception choice, choose the false choice, not the true choices.
+- If the proposed solution marked a choice true/false based on a questionable legal assumption, override it.
+- If the applicable legal rule is uncertain, output "questionNumber: ?" rather than guessing.
+- If OCR is incomplete for important choices, output "questionNumber: ?".
 - Keep ANSWERS answer-only and under 5 lines.
         """.trimIndent()
     }
