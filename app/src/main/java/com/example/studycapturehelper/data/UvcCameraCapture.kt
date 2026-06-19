@@ -29,10 +29,12 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "UvcCameraCapture"
+private const val CAMERA_WARMUP_MS = 800L
 
 @Singleton
 class UvcCameraCapture @Inject constructor(
@@ -68,6 +70,8 @@ class UvcCameraCapture @Inject constructor(
 
         val request = CameraRequest.Builder()
             .setFrontCamera(false)
+            .setPreviewWidth(1920)
+            .setPreviewHeight(1080)
             .create()
 
         camera = suspendCoroutine { cont ->
@@ -87,6 +91,8 @@ class UvcCameraCapture @Inject constructor(
             })
             cam.openCamera(sf, request)
         }
+        // Give AE/AWB time to settle before the first capture
+        delay(CAMERA_WARMUP_MS)
         Log.d(TAG, "USB camera connected")
     }
 
