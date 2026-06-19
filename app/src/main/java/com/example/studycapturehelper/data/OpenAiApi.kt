@@ -28,6 +28,7 @@ data class InputContent(
     val type: String,
     val text: String? = null,
     @Json(name = "image_url") val imageUrl: String? = null,
+    val detail: String? = null,
 )
 
 data class ResponseDto(

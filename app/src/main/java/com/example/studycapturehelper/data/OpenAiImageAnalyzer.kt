@@ -32,8 +32,8 @@ class OpenAiImageAnalyzer @Inject constructor(
         val token = requireNotNull(tokenProvider.token()) {
             "A short-lived API token must be supplied by a trusted backend."
         }
-        val content = buildList {
-            add(InputContent(type = "input_text", text = STUDY_PROMPT))
+        val ocrContent = buildList {
+            add(InputContent(type = "input_text", text = OCR_PROMPT))
             safeImages.lastOrNull()?.let { image ->
                 add(InputContent(type = "input_text", text = "Reference original frame"))
                 add(image.toInputContent())
@@ -42,23 +42,45 @@ class OpenAiImageAnalyzer @Inject constructor(
                 addBestReadingCrop(index, image)
             }
         }
+        val ocrText = createTextResponse(token, ocrContent, maxOutputTokens = 1_200)
+        val solveText = createTextResponse(
+            token = token,
+            content = listOf(
+                InputContent(type = "input_text", text = SOLVE_PROMPT),
+                InputContent(type = "input_text", text = ocrText),
+            ),
+            maxOutputTokens = 500,
+        )
+        return StudyAnalysis(
+            text = formatAnswerOnly(solveText),
+            debugText = buildString {
+                appendLine("OCR_RESULT:")
+                appendLine(ocrText.ifBlank { "(empty)" })
+                appendLine()
+                appendLine("SOLVE_RESULT:")
+                append(solveText.ifBlank { "(empty)" })
+            },
+        )
+    }
+
+    private suspend fun createTextResponse(
+        token: String,
+        content: List<InputContent>,
+        maxOutputTokens: Int,
+    ): String {
         val request = ResponseRequest(
             model = "gpt-4o",
             input = listOf(InputMessage(role = "user", content = content)),
-            maxOutputTokens = 900,
+            maxOutputTokens = maxOutputTokens,
         )
         val response = api.createResponse("Bearer $token", request)
-        val text = response.outputText?.trim().orEmpty().ifBlank {
+        return response.outputText?.trim().orEmpty().ifBlank {
             response.output
                 .flatMap { it.content }
                 .mapNotNull { it.text?.trim() }
                 .filter { it.isNotBlank() }
                 .joinToString("\n")
         }
-        return StudyAnalysis(
-            text = formatAnswerOnly(text),
-            debugText = text.ifBlank { null },
-        )
     }
 
     private fun CapturedImage.toInputContent(): InputContent {
@@ -66,6 +88,7 @@ class OpenAiImageAnalyzer @Inject constructor(
         return InputContent(
             type = "input_image",
             imageUrl = "data:$mimeType;base64,$base64",
+            detail = "high",
         )
     }
 
@@ -319,24 +342,44 @@ class OpenAiImageAnalyzer @Inject constructor(
         val ANSWER_ONLY_REGEX = Regex(
             pattern = "(?is)(?:\\uC815\\uB2F5|\\uB2F5|answer|ans)\\D{0,30}([1-5?])\\s*(?:\\uBC88)?",
         )
-        val STUDY_PROMPT = """
-You solve visible Korean multiple-choice study questions from camera images.
+        val OCR_PROMPT = """
+You are an OCR engine for Korean multiple-choice exam images.
 The user provides one reference frame plus up to five cropped reading aids from consecutive frames of the same page.
-Use all reading aids together. Combine the sharpest visible text from different frames before choosing answers.
+Use all frames together, but do OCR only. Do not solve.
 
-Return three sections: ANSWERS, OCR_DEBUG, SOLVE_DEBUG.
-Keep ANSWERS answer-only. OCR_DEBUG and SOLVE_DEBUG are for troubleshooting.
-Never reconstruct or complete OCR_DEBUG from legal knowledge, common exam patterns, or memory.
+Return OCR_RESULT only.
 
 Output format:
-ANSWERS:
-18: 3
-19: 2
-OCR_DEBUG:
+OCR_RESULT:
 18 question: ...
 18 choices: 1=... / 2=... / 3=... / 4=...
 19 question: ...
 19 choices: 1=... / 2=... / 3=... / 4=...
+
+Rules:
+- Read every clearly visible complete question, not just one.
+- Prefer questions that show both the question sentence and its choices.
+- Read the printed question number immediately before the question stem. Do not infer it from nearby questions.
+- When frames disagree, trust the frame where the relevant printed Korean text is largest and sharpest.
+- If one frame shows the question stem and another frame shows the choices, combine them for the same question number.
+- Copy only visible text.
+- Do not fill missing choices from memory. Do not paraphrase unseen choices.
+- If the original and enhanced images disagree, trust the image where the printed Korean text is sharper.
+- If any choice text is not actually readable, put "[?]" for that choice.
+- Mark uncertain characters with "[?]" instead of silently guessing.
+- Never use legal knowledge, common exam patterns, or memory to complete OCR text.
+        """.trimIndent()
+
+        val SOLVE_PROMPT = """
+You solve Korean multiple-choice exam questions using ONLY the OCR text provided by the user.
+You cannot see the image. Do not invent missing stems or choices.
+
+Return two sections: ANSWERS and SOLVE_DEBUG.
+
+Output format:
+ANSWERS:
+18: 3
+19: ?
 SOLVE_DEBUG:
 18 asks: correct / incorrect / unknown
 18 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
@@ -344,25 +387,13 @@ SOLVE_DEBUG:
 19 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
 
 Rules:
-- Answer every clearly visible complete question, not just one.
-- Prefer questions that show both the question sentence and its choices.
-- If two or more questions are visible, use one line per question.
-- Read the printed question number immediately before the question stem. Do not infer it from nearby questions.
-- When frames disagree, trust the frame where the relevant printed Korean text is largest and sharpest.
-- If one frame shows the question stem and another frame shows the choices, combine them for the same question number.
-- Use only the visible question and visible choices when selecting an answer.
-- Do not fill missing choices from memory. Do not paraphrase unseen choices.
-- Before choosing, silently read the question stem and all visible choices.
-- If the original and enhanced images disagree, trust the image where the printed Korean text is sharper.
-- If any choice text is not actually readable, put "[?]" for that choice in OCR_DEBUG.
-- If a question is visible but the stem or choices are not enough to choose from visible text, output "questionNumber: ?".
-- If no question number can be read, output "?: ?".
-- In OCR_DEBUG, mark uncertain characters with [?] instead of silently guessing.
-- It is better to output "19: ?" than to guess or invent choices.
-- In SOLVE_DEBUG, first identify whether the question asks for the correct choice, incorrect choice, or exception.
-- If SOLVE_DEBUG has two plausible choices or the ask direction is unknown, output "questionNumber: ?" in ANSWERS.
-- Be especially careful with Korean phrases meaning incorrect/exception, such as "옳지 않은", "타당하지 않은", "틀린", and "아닌".
-- Keep ANSWERS under 5 lines.
+- Use only OCR text. If OCR contains "[?]" in important parts, treat that choice as unknown.
+- First identify whether each question asks for the correct choice, incorrect choice, exception, or unknown.
+- Korean negative ask phrases include "not correct", "not valid", "wrong", "except", and "not".
+- If the ask direction is unknown, output "questionNumber: ?".
+- If two or more choices are plausible, output "questionNumber: ?".
+- If any required choice text is missing or mostly "[?]", output "questionNumber: ?".
+- Keep ANSWERS answer-only and under 5 lines.
         """.trimIndent()
     }
 
