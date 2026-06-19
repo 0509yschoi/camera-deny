@@ -16,7 +16,7 @@ interface OpenAiApi {
 data class ResponseRequest(
     val model: String,
     val input: List<InputMessage>,
-    @Json(name = "max_output_tokens") val maxOutputTokens: Int = 300,
+    @Json(name = "max_output_tokens") val maxOutputTokens: Int = 120,
 )
 
 data class InputMessage(
@@ -28,7 +28,6 @@ data class InputContent(
     val type: String,
     val text: String? = null,
     @Json(name = "image_url") val imageUrl: String? = null,
-    val detail: String? = null,
 )
 
 data class ResponseDto(
