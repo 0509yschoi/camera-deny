@@ -22,35 +22,48 @@ class OpenAiImageAnalyzer @Inject constructor(
     private val tokenProvider: ApiTokenProvider,
 ) : ImageAnalyzer {
     override suspend fun analyze(image: CapturedImage): StudyAnalysis {
+        return analyze(listOf(image))
+    }
+
+    override suspend fun analyze(images: List<CapturedImage>): StudyAnalysis {
+        val safeImages = images.take(MAX_ANALYSIS_FRAMES).ifEmpty {
+            return StudyAnalysis("?: ?")
+        }
         val token = requireNotNull(tokenProvider.token()) {
             "A short-lived API token must be supplied by a trusted backend."
         }
         val content = buildList {
             add(InputContent(type = "input_text", text = STUDY_PROMPT))
-            add(image.toInputContent())
-            createDocumentCrop(image.bytes)?.let { crop ->
-                add(
-                    CapturedImage(bytes = crop, mimeType = "image/jpeg")
-                        .toInputContent(),
-                )
-            }
-            createTextRegionCrop(image.bytes)?.let { crop ->
-                add(
-                    CapturedImage(bytes = crop, mimeType = "image/jpeg")
-                        .toInputContent(),
-                )
-            }
-            createEnhancedTextRegionCrop(image.bytes)?.let { crop ->
-                add(
-                    CapturedImage(bytes = crop, mimeType = "image/jpeg")
-                        .toInputContent(),
-                )
+            safeImages.forEachIndexed { index, image ->
+                add(InputContent(type = "input_text", text = "Frame ${index + 1} original"))
+                add(image.toInputContent())
+                createDocumentCrop(image.bytes)?.let { crop ->
+                    add(InputContent(type = "input_text", text = "Frame ${index + 1} document crop"))
+                    add(
+                        CapturedImage(bytes = crop, mimeType = "image/jpeg")
+                            .toInputContent(),
+                    )
+                }
+                createTextRegionCrop(image.bytes)?.let { crop ->
+                    add(InputContent(type = "input_text", text = "Frame ${index + 1} text crop"))
+                    add(
+                        CapturedImage(bytes = crop, mimeType = "image/jpeg")
+                            .toInputContent(),
+                    )
+                }
+                createEnhancedTextRegionCrop(image.bytes)?.let { crop ->
+                    add(InputContent(type = "input_text", text = "Frame ${index + 1} enhanced text crop"))
+                    add(
+                        CapturedImage(bytes = crop, mimeType = "image/jpeg")
+                            .toInputContent(),
+                    )
+                }
             }
         }
         val request = ResponseRequest(
             model = "gpt-4o",
             input = listOf(InputMessage(role = "user", content = content)),
-            maxOutputTokens = 220,
+            maxOutputTokens = 320,
         )
         val response = api.createResponse("Bearer $token", request)
         val text = response.outputText?.trim().orEmpty().ifBlank {
@@ -294,6 +307,7 @@ class OpenAiImageAnalyzer @Inject constructor(
     }
 
     private companion object {
+        const val MAX_ANALYSIS_FRAMES = 5
         val STRICT_ANSWER_REGEX = Regex(
             pattern = "(?im)^\\s*(?:q(?:uestion)?\\s*)?(\\d{1,3}|\\?)\\s*" +
                 "(?:[:.)\\]-]|->|=>|\\uB300|\\uBC88)?\\s*" +
@@ -313,8 +327,8 @@ class OpenAiImageAnalyzer @Inject constructor(
         )
         val STUDY_PROMPT = """
 You solve visible Korean multiple-choice study questions from camera images.
-The user may provide the original frame plus cropped versions of the same page.
-Some images may be high-contrast reading aids of the same page.
+The user provides up to five consecutive camera frames of the same page, plus crops and high-contrast reading aids.
+Use all frames together. Combine the sharpest visible text from different frames before choosing answers.
 
 Return ONLY question numbers and answer choice numbers.
 No explanation. No copied text. No confidence text. No greetings.
@@ -329,6 +343,8 @@ Rules:
 - Prefer questions that show both the question sentence and its choices.
 - If two or more questions are visible, use one line per question.
 - Read the printed question number immediately before the question stem. Do not infer it from nearby questions.
+- When frames disagree, trust the frame where the relevant printed Korean text is largest and sharpest.
+- If one frame shows the question stem and another frame shows the choices, combine them for the same question number.
 - Use only the visible question and visible choices when selecting an answer.
 - Do not fill missing choices from memory.
 - Before choosing, silently read the question stem and all visible choices.

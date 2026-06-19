@@ -68,10 +68,10 @@ class CaptureForegroundService : LifecycleService() {
                 Log.d(TAG, "Camera connected; capture loop started")
                 while (true) {
                     val settings = settingsRepository.settings.first()
-                    Log.d(TAG, "Capturing camera frame")
-                    val captured = camera.captureJpeg()
-                    Log.d(TAG, "Camera frame captured: ${captured.bytes.size} bytes")
-                    sessionStatus.updateLastImage(captured.bytes)
+                    Log.d(TAG, "Capturing camera burst")
+                    val captured = captureBurst()
+                    Log.d(TAG, "Camera burst captured: ${captured.size} frames")
+                    captured.lastOrNull()?.let { sessionStatus.updateLastImage(it.bytes) }
                     val analysis = analyzer.analyze(captured)
                     if (settings.speechEnabled) speechOutput.speak(analysis.text)
 
@@ -87,6 +87,18 @@ class CaptureForegroundService : LifecycleService() {
                 stopSelf()
             }
         }
+    }
+
+    private suspend fun captureBurst(): List<com.example.studycapturehelper.domain.CapturedImage> {
+        val frames = mutableListOf<com.example.studycapturehelper.domain.CapturedImage>()
+        repeat(BURST_FRAME_COUNT) { index ->
+            val captured = camera.captureJpeg()
+            Log.d(TAG, "Camera burst frame ${index + 1}: ${captured.bytes.size} bytes")
+            sessionStatus.updateLastImage(captured.bytes)
+            frames += captured
+            if (index < BURST_FRAME_COUNT - 1) delay(BURST_FRAME_DELAY_MS)
+        }
+        return frames
     }
 
     private fun stopSession() {
@@ -113,5 +125,7 @@ class CaptureForegroundService : LifecycleService() {
     companion object {
         const val ACTION_START = "com.example.studycapturehelper.START"
         const val ACTION_STOP = "com.example.studycapturehelper.STOP"
+        private const val BURST_FRAME_COUNT = 5
+        private const val BURST_FRAME_DELAY_MS = 700L
     }
 }

@@ -16,6 +16,7 @@ interface CameraCapture {
 
 interface ImageAnalyzer {
     suspend fun analyze(image: CapturedImage): StudyAnalysis
+    suspend fun analyze(images: List<CapturedImage>): StudyAnalysis = analyze(images.first())
 }
 
 interface SpeechOutput {
