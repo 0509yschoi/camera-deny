@@ -1,13 +1,17 @@
 package com.example.studycapturehelper
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +58,10 @@ import com.example.studycapturehelper.service.CaptureForegroundService
 import com.example.studycapturehelper.ui.MainViewModel
 import com.example.studycapturehelper.update.UpdateDownloadManager
 import dagger.hilt.android.AndroidEntryPoint
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -73,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     onStop = ::stopSession,
                     onCheckUpdate = viewModel::checkForUpdate,
                     onDownloadUpdate = ::requestInstallPermissionAndDownload,
+                    onSaveImage = ::saveCapturedImage,
                 )
             }
         }
@@ -101,6 +110,9 @@ class MainActivity : ComponentActivity() {
         val permissions = buildList {
             add(Manifest.permission.CAMERA)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+                add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
         }
         if (permissions.all {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
@@ -126,6 +138,48 @@ class MainActivity : ComponentActivity() {
 
     private fun stopSession() {
         stopService(Intent(this, CaptureForegroundService::class.java))
+    }
+
+    private fun saveCapturedImage(bytes: ByteArray) {
+        val fileName = "StudyCapture_${SAVE_FORMAT.format(Date())}.jpg"
+        val resolver = contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.Images.Media.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_PICTURES}/StudyCaptureHelper",
+                )
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            } else {
+                val directory = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    "StudyCaptureHelper",
+                )
+                directory.mkdirs()
+                put(MediaStore.Images.Media.DATA, File(directory, fileName).absolutePath)
+            }
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            Toast.makeText(this, "이미지 저장에 실패했습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                ?: error("Output stream is unavailable.")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+        }.onSuccess {
+            Toast.makeText(this, "캡처 이미지를 저장했습니다.", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            resolver.delete(uri, null, null)
+            Toast.makeText(this, "이미지 저장에 실패했습니다.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private val installPermissionLauncher = registerForActivityResult(
@@ -155,6 +209,10 @@ class MainActivity : ComponentActivity() {
         updateDownloadManager.enqueue(update)
         viewModel.markDownloadStarted(update)
     }
+
+    private companion object {
+        val SAVE_FORMAT = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+    }
 }
 
 @Composable
@@ -164,6 +222,7 @@ private fun CaptureScreen(
     onStop: () -> Unit,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: (AppUpdate) -> Unit,
+    onSaveImage: (ByteArray) -> Unit,
 ) {
     val settings by viewModel.settings.collectAsState()
     val state by viewModel.sessionState.collectAsState()
@@ -225,6 +284,14 @@ private fun CaptureScreen(
                 enabled = lastImageBytes != null,
             ) {
                 Text("화면 확인")
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { lastImageBytes?.let(onSaveImage) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = lastImageBytes != null,
+            ) {
+                Text("캡처 저장")
             }
             analyzeState?.let { result ->
                 Spacer(Modifier.height(16.dp))
