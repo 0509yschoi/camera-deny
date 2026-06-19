@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pdfplumber
 
+from extract_hwp_text import extract_hwp_text
+
 
 ANSWER_MARKS = {
     "①": "1",
@@ -174,14 +176,42 @@ def convert_numbered(pdf_path: Path, source: str) -> list[dict]:
 
 def convert_cbt(pdf_path: Path, source: str) -> list[dict]:
     text = extract_columns(pdf_path)
+    return convert_cbt_text(text, source)
+
+
+def convert_hwp_cbt(hwp_path: Path, source: str) -> list[dict]:
+    return convert_cbt_text(extract_hwp_text(hwp_path), source)
+
+
+def convert_cbt_text(text: str, source: str) -> list[dict]:
+    answer_table = parse_standalone_answer_table(text)
     records: list[dict] = []
     for number, block in split_cbt_question_blocks(text):
         if number < 1 or number > 40:
             continue
-        record = parse_cbt_question_block(number, block, source)
+        record = parse_cbt_question_block(number, block, source, answer_table.get(number))
         if record:
             records.append(record)
     return records
+
+
+def parse_standalone_answer_table(text: str) -> dict[int, str]:
+    tokens = re.findall(r"(?m)^\s*(\d{1,2}|[①②③④⑤])\s*$", text)
+    answers: dict[int, str] = {}
+    for index in range(0, len(tokens)):
+        first_numbers = [str(n) for n in range(1, 11)]
+        second_numbers = [str(n) for n in range(11, 21)]
+        if tokens[index : index + 10] == first_numbers:
+            marks = tokens[index + 10 : index + 20]
+            if len(marks) == 10 and all(mark in ANSWER_MARKS for mark in marks):
+                for offset, mark in enumerate(marks, start=1):
+                    answers[offset] = ANSWER_MARKS[mark]
+        if tokens[index : index + 10] == second_numbers:
+            marks = tokens[index + 10 : index + 20]
+            if len(marks) == 10 and all(mark in ANSWER_MARKS for mark in marks):
+                for offset, mark in enumerate(marks, start=11):
+                    answers[offset] = ANSWER_MARKS[mark]
+    return answers
 
 
 def split_cbt_question_blocks(text: str) -> list[tuple[int, str]]:
@@ -195,15 +225,21 @@ def split_cbt_question_blocks(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
-def parse_cbt_question_block(number: int, block: str, source: str) -> dict | None:
-    question_area = re.sub(r"^\s*\d{1,2}\.\s*", "", block).strip()
+def parse_cbt_question_block(
+    number: int,
+    block: str,
+    source: str,
+    table_answer: str | None = None,
+) -> dict | None:
+    question_area = trim_to_question_area(block)
+    question_area = re.sub(r"^\s*\d{1,2}\.\s*", "", question_area).strip()
     choice_matches = list(re.finditer(r"[①②③④⑤❶❷❸❹❺]", question_area))
     if len(choice_matches) < 4:
         return None
 
     stem = normalize(question_area[: choice_matches[0].start()])
     choices: list[str] = []
-    answer: str | None = None
+    answer: str | None = table_answer
     for idx, match in enumerate(choice_matches):
         marker = match.group(0)
         if marker in "❶❷❸❹❺":
@@ -232,15 +268,21 @@ def main() -> None:
     parser.add_argument("--pdf", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--source", default="2025-national-9")
-    parser.add_argument("--format", choices=["columns", "numbered", "cbt"], default="columns")
+    parser.add_argument(
+        "--format",
+        choices=["columns", "numbered", "cbt", "hwp-cbt"],
+        default="columns",
+    )
     args = parser.parse_args()
 
     if args.format == "columns":
         records = convert_2025(args.pdf)
     elif args.format == "numbered":
         records = convert_numbered(args.pdf, args.source)
-    else:
+    elif args.format == "cbt":
         records = convert_cbt(args.pdf, args.source)
+    else:
+        records = convert_hwp_cbt(args.pdf, args.source)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
         for record in records:
