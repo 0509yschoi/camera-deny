@@ -86,8 +86,7 @@ class CaptureForegroundService : LifecycleService() {
                     applyDoNotDisturbIfNeeded(settings.dndEnabled)
                     if (SystemClock.elapsedRealtime() - activeWindowStartedAt >= ACTIVE_WINDOW_MS) {
                         coolDownCamera()
-                        sessionStatus.updateProgress("Reconnecting USB camera after cooldown...")
-                        withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
+                        reconnectCameraUntilAvailable()
                         activeWindowStartedAt = SystemClock.elapsedRealtime()
                     }
                     Log.d(TAG, "Capturing camera burst")
@@ -116,6 +115,29 @@ class CaptureForegroundService : LifecycleService() {
                 runCatching { camera.disconnect() }
                 stopSelf()
             }
+        }
+    }
+
+    private suspend fun reconnectCameraUntilAvailable() {
+        var attempt = 1
+        while (true) {
+            sessionStatus.updateProgress("Reconnecting USB camera after cooldown... attempt $attempt")
+            val connected = runCatching {
+                withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
+            }.onFailure { error ->
+                val msg = error.message ?: error.javaClass.simpleName
+                Log.w(TAG, "Camera reconnect failed on attempt $attempt: $msg", error)
+                sessionStatus.updateProgress(
+                    "Reconnect failed: $msg. Retrying in ${RECONNECT_RETRY_DELAY_MS / 1000}s...",
+                )
+                runCatching { camera.disconnect() }
+            }.isSuccess
+            if (connected) {
+                sessionStatus.updateProgress("USB camera reconnected. Resuming capture...")
+                return
+            }
+            attempt += 1
+            delay(RECONNECT_RETRY_DELAY_MS)
         }
     }
 
@@ -214,5 +236,6 @@ class CaptureForegroundService : LifecycleService() {
         private const val ACTIVE_WINDOW_MS = 20 * 60 * 1000L
         private const val COOLDOWN_MS = 4 * 60 * 1000L
         private const val COOLDOWN_TICK_MS = 10_000L
+        private const val RECONNECT_RETRY_DELAY_MS = 30_000L
     }
 }
