@@ -50,7 +50,7 @@ class OpenAiImageAnalyzer @Inject constructor(
         val request = ResponseRequest(
             model = "gpt-4o",
             input = listOf(InputMessage(role = "user", content = content)),
-            maxOutputTokens = 80,
+            maxOutputTokens = 220,
         )
         val response = api.createResponse("Bearer $token", request)
         val text = response.outputText?.trim().orEmpty().ifBlank {
@@ -257,13 +257,19 @@ class OpenAiImageAnalyzer @Inject constructor(
 
         val answers = linkedMapOf<String, String>()
         val normalized = text
-            .replace('①', '1')
-            .replace('②', '2')
-            .replace('③', '3')
-            .replace('④', '4')
-            .replace('⑤', '5')
+            .replace('\u2460', '1')
+            .replace('\u2461', '2')
+            .replace('\u2462', '3')
+            .replace('\u2463', '4')
+            .replace('\u2464', '5')
 
         STRICT_ANSWER_REGEX.findAll(normalized).forEach { match ->
+            val question = match.groupValues[1]
+            val answer = match.groupValues[2]
+            answers.putIfAbsent(question, answer)
+        }
+
+        LOOSE_PAIR_REGEX.findAll(normalized).forEach { match ->
             val question = match.groupValues[1]
             val answer = match.groupValues[2]
             answers.putIfAbsent(question, answer)
@@ -275,6 +281,12 @@ class OpenAiImageAnalyzer @Inject constructor(
             answers.putIfAbsent(question, answer)
         }
 
+        if (answers.isEmpty()) {
+            ANSWER_ONLY_REGEX.find(normalized)?.let { match ->
+                answers["?"] = match.groupValues[1]
+            }
+        }
+
         return answers.entries
             .take(5)
             .joinToString("\n") { (question, answer) -> "$question: $answer" }
@@ -283,10 +295,21 @@ class OpenAiImageAnalyzer @Inject constructor(
 
     private companion object {
         val STRICT_ANSWER_REGEX = Regex(
-            pattern = """(?m)^\s*(\d{1,3}|\?)\s*(?:[:：.)-]|번)\s*([1-5?])\s*(?:번)?\b""",
+            pattern = "(?im)^\\s*(?:q(?:uestion)?\\s*)?(\\d{1,3}|\\?)\\s*" +
+                "(?:[:.)\\]-]|->|=>|\\uB300|\\uBC88)?\\s*" +
+                "([1-5?])\\s*(?:\\uBC88|choice)?\\b",
+        )
+        val LOOSE_PAIR_REGEX = Regex(
+            pattern = "(?is)(?:^|[^0-9])(\\d{1,3})\\s*" +
+                "(?:[:.)\\]-]|->|=>|\\uB300|\\uBC88|q|question)\\s*" +
+                "(?:answer|ans|\\uB2F5|\\uC815\\uB2F5)?\\D{0,20}?([1-5?])\\s*(?:\\uBC88)?\\b",
         )
         val VERBOSE_ANSWER_REGEX = Regex(
-            pattern = """(?is)(\d{1,3})\s*번.{0,100}?(?:정답|답|answer)\D{0,20}([1-5?])\s*(?:번)?""",
+            pattern = "(?is)(\\d{1,3})\\s*(?:\\uBC88|q|question|\\uBB38\\uC81C).{0,120}?" +
+                "(?:\\uC815\\uB2F5|\\uB2F5|answer|ans)\\D{0,30}([1-5?])\\s*(?:\\uBC88)?",
+        )
+        val ANSWER_ONLY_REGEX = Regex(
+            pattern = "(?is)(?:\\uC815\\uB2F5|\\uB2F5|answer|ans)\\D{0,30}([1-5?])\\s*(?:\\uBC88)?",
         )
         val STUDY_PROMPT = """
 You solve visible Korean multiple-choice study questions from camera images.
@@ -295,6 +318,7 @@ Some images may be high-contrast reading aids of the same page.
 
 Return ONLY question numbers and answer choice numbers.
 No explanation. No copied text. No confidence text. No greetings.
+Use ASCII digits and a colon. Do not use Korean words between the two numbers.
 
 Output format:
 18: 3
@@ -304,6 +328,7 @@ Rules:
 - Answer every clearly visible complete question, not just one.
 - Prefer questions that show both the question sentence and its choices.
 - If two or more questions are visible, use one line per question.
+- Read the printed question number immediately before the question stem. Do not infer it from nearby questions.
 - Use only the visible question and visible choices when selecting an answer.
 - Do not fill missing choices from memory.
 - Before choosing, silently read the question stem and all visible choices.
