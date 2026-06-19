@@ -2,6 +2,7 @@ package com.example.studycapturehelper.data
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import android.util.Base64
 import com.example.studycapturehelper.domain.CapturedImage
 import com.example.studycapturehelper.domain.ImageAnalyzer
@@ -45,6 +46,7 @@ class OpenAiImageAnalyzer @Inject constructor(
                 addBestReadingCrop(index, image)
             }
         }
+        val ocrStartedAt = SystemClock.elapsedRealtime()
         val ocrText = createTextResponse(
             token = token,
             content = ocrContent,
@@ -52,7 +54,10 @@ class OpenAiImageAnalyzer @Inject constructor(
             model = OCR_MODEL,
             reasoningEffort = null,
         )
+        val ocrMs = SystemClock.elapsedRealtime() - ocrStartedAt
+        val dbStartedAt = SystemClock.elapsedRealtime()
         val pastQuestionMatches = pastQuestionBank.findRelevant(ocrText, PAST_QUESTION_LIMIT)
+        val dbMs = SystemClock.elapsedRealtime() - dbStartedAt
         val solveContext = buildString {
             if (pastQuestionMatches.isNotEmpty()) {
                 appendLine("PAST_QUESTION_REFERENCES:")
@@ -62,6 +67,7 @@ class OpenAiImageAnalyzer @Inject constructor(
             appendLine("OCR_TEXT:")
             append(ocrText)
         }
+        val solveStartedAt = SystemClock.elapsedRealtime()
         val solveAttempt = createBestReasoningResponse(
             token = token,
             content = listOf(
@@ -69,9 +75,13 @@ class OpenAiImageAnalyzer @Inject constructor(
                 InputContent(type = "input_text", text = solveContext),
             ),
         )
+        val solveMs = SystemClock.elapsedRealtime() - solveStartedAt
         return StudyAnalysis(
             text = formatAnswerOnly(solveAttempt.text),
             debugText = buildString {
+                appendLine("TIMING:")
+                appendLine("ocr=${ocrMs / 1000.0}s, db=${dbMs / 1000.0}s, solve=${solveMs / 1000.0}s")
+                appendLine()
                 appendLine("OCR_RESULT:")
                 appendLine(ocrText.ifBlank { "(empty)" })
                 appendLine()
@@ -360,7 +370,7 @@ class OpenAiImageAnalyzer @Inject constructor(
     }
 
     private fun formatAnswerOnly(text: String): String {
-        if (text.isBlank()) return "?: ?"
+        if (text.isBlank()) return "문제 번호 확인 불가, 정답 확인 불가"
 
         val answers = linkedMapOf<String, String>()
         val normalized = text
@@ -396,20 +406,28 @@ class OpenAiImageAnalyzer @Inject constructor(
 
         return answers.entries
             .take(5)
-            .joinToString("\n") { (question, answer) -> "$question: $answer" }
-            .ifBlank { "?: ?" }
+            .joinToString("\n") { (question, answer) ->
+                when {
+                    question == "?" && answer == "?" -> "문제 번호 확인 불가, 정답 확인 불가"
+                    question == "?" -> "문제 번호 확인 불가, 정답 ${answer}번"
+                    answer == "?" -> "${question}번 문제 정답 확인 불가"
+                    else -> "${question}번 문제 정답 ${answer}번"
+                }
+            }
+            .ifBlank { "문제 번호 확인 불가, 정답 확인 불가" }
     }
 
     private companion object {
         const val MAX_ANALYSIS_FRAMES = 5
         const val PAST_QUESTION_LIMIT = 5
         const val OCR_MODEL = "gpt-4o"
-        const val REASONING_MAX_OUTPUT_TOKENS = 5_000
+        const val REASONING_MAX_OUTPUT_TOKENS = 900
         val REASONING_MODELS = listOf("gpt-5.5", "gpt-5.4-mini")
         val STRICT_ANSWER_REGEX = Regex(
             pattern = "(?im)^\\s*(?:q(?:uestion)?\\s*)?(\\d{1,3}|\\?)\\s*" +
+                "(?:\\uBC88\\s*\\uBB38\\uC81C\\s*)?" +
                 "(?:[:.)\\]-]|->|=>|\\uB300|\\uBC88)?\\s*" +
-                "([1-5?])\\s*(?:\\uBC88|choice)?\\b",
+                "(?:\\uC815\\uB2F5\\s*)?([1-5?])\\s*(?:\\uBC88|choice)?\\b",
         )
         val LOOSE_PAIR_REGEX = Regex(
             pattern = "(?is)(?:^|[^0-9])(\\d{1,3})\\s*" +
@@ -453,33 +471,27 @@ Rules:
 
         val SOLVE_PROMPT = """
 You are a Korean civil-service exam multiple-choice answer engine.
-The user provides OCR text from public-law/admin-law style exam questions.
+The user provides OCR text from Korean civil-service exam questions. Subjects may include Korean language, English, Korean history, administrative law, and public administration.
 The user may also provide similar past-question references with known answers.
-Your goal is to match how Korean civil-service exam questions are normally answered, not to write a legal essay.
+Your goal is to choose the answer like a test taker, using OCR text first and past-question matches as strong hints.
 
-Return two sections: ANSWERS and SOLVE_DEBUG.
+Return ANSWERS only. Do not return explanations, debug, legal analysis, or choice-by-choice evaluation.
 
 Output format:
 ANSWERS:
-18: 3
-19: ?
-SOLVE_DEBUG:
-18 asks: correct / incorrect / unknown
-18 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
-19 asks: correct / incorrect / unknown
-19 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
+18번 문제 정답 3번
+19번 문제 정답 확인 불가
 
 Rules:
 - Use OCR_TEXT as the current question source. If a choice has a small OCR typo but its exam concept is clear, infer the intended printed sentence.
-- Use PAST_QUESTION_REFERENCES as strong hints for repeated traps, standard answers, and similar wording.
+- Use PAST_QUESTION_REFERENCES as strong hints for repeated questions, repeated passages, standard answers, and similar wording.
 - Do not copy a past answer blindly if the current question asks the opposite direction or the choices differ materially.
-- First identify whether each question asks for the correct choice, incorrect choice, exception, or unknown.
-- Korean negative ask phrases include "옳지 않은", "타당하지 않은", "잘못된", "아닌", "제외", and "않은".
-- Solve like a Korean civil-service test taker: use learned public-law/admin-law exam knowledge, repeated past-question patterns, and standard doctrine/case-law memory.
-- Do not produce explanations in ANSWERS. Pick the most likely answer unless the OCR is too incomplete to know the question or choices.
+- Identify whether each question asks for the correct choice, incorrect choice, exception, best title, blank, order, grammar, reading-comprehension answer, or unknown.
+- Korean negative ask phrases include "옳지 않은", "타당하지 않은", "잘못된", "아닌", "제외", "부적절한", and "않은".
+- Solve like a Korean civil-service test taker: use repeated past-question patterns, standard subject knowledge, and the visible passage/choices.
+- Pick the most likely answer unless the OCR is too incomplete to know the question or choices.
 - Use "?" only when the OCR omitted an essential choice or the question direction is unreadable.
-- If one choice is a familiar trap from past Korean civil-service exams, choose it even if other choices sound plausible.
-- Keep ANSWERS answer-only and under 5 lines.
+- Keep the answer text under 5 lines.
         """.trimIndent()
     }
 

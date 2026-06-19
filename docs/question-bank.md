@@ -145,6 +145,11 @@ Keep explanations short. The app only needs enough context to choose the likely 
 - `9급지방직공무원행정법총론20180519(교사용).hwp`: imported 20 admin-law questions.
 - `9급지방직공무원행정법총론20171216(교사용) (1).hwp`: imported 20 admin-law questions.
 - `9급지방직공무원행정법총론20170617(교사용) (1).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20170408(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20160618(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20160319(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20150627(교사용).hwp`: imported 20 admin-law questions.
+- `9급지방직공무원행정법총론20150314(교사용).hwp`: imported 20 admin-law questions.
 - `9급지방직공무원행정법총론20240622(교사용).pdf`: replaced by the HWP import for the same exam.
 - `2026 국가직 9급 행정법총론 해설 공기출.pdf`: not imported yet because the provided PDF text is mainly generated explanation text and does not contain clean question/choice source text.
 - `2023 지방직 9급 행정법총론 해설 이승철.pdf`: not imported yet because it is image-based and needs OCR before structured conversion.
