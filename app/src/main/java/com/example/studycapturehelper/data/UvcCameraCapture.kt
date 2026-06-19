@@ -34,9 +34,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "UvcCameraCapture"
-private const val CAMERA_WARMUP_MS = 800L
+private const val CAMERA_WARMUP_MS = 2_000L
 private const val CAMERA_OPEN_TIMEOUT_MS = 10_000L
-private const val CAMERA_RETRY_DELAY_MS = 300L
+private const val CAMERA_RETRY_DELAY_MS = 800L
 
 @Singleton
 class UvcCameraCapture @Inject constructor(
@@ -74,6 +74,7 @@ class UvcCameraCapture @Inject constructor(
         sf: Surface,
     ): CameraUVC {
         val attempts = listOf(
+            CameraSize(1920, 1080),
             CameraSize(1920, 1080),
             CameraSize(1280, 720),
             CameraSize(640, 480),
