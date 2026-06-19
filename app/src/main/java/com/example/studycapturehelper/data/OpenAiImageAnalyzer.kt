@@ -60,7 +60,7 @@ class OpenAiImageAnalyzer @Inject constructor(
                 .filter { it.isNotBlank() }
                 .joinToString("\n")
         }
-        return StudyAnalysis(text.ifBlank { "No analysis result was returned." })
+        return StudyAnalysis(formatAnswerOnly(text))
     }
 
     private fun CapturedImage.toInputContent(): InputContent {
@@ -252,7 +252,42 @@ class OpenAiImageAnalyzer @Inject constructor(
         return enhanced
     }
 
+    private fun formatAnswerOnly(text: String): String {
+        if (text.isBlank()) return "?: ?"
+
+        val answers = linkedMapOf<String, String>()
+        val normalized = text
+            .replace('①', '1')
+            .replace('②', '2')
+            .replace('③', '3')
+            .replace('④', '4')
+            .replace('⑤', '5')
+
+        STRICT_ANSWER_REGEX.findAll(normalized).forEach { match ->
+            val question = match.groupValues[1]
+            val answer = match.groupValues[2]
+            answers.putIfAbsent(question, answer)
+        }
+
+        VERBOSE_ANSWER_REGEX.findAll(normalized).forEach { match ->
+            val question = match.groupValues[1]
+            val answer = match.groupValues[2]
+            answers.putIfAbsent(question, answer)
+        }
+
+        return answers.entries
+            .take(5)
+            .joinToString("\n") { (question, answer) -> "$question: $answer" }
+            .ifBlank { "?: ?" }
+    }
+
     private companion object {
+        val STRICT_ANSWER_REGEX = Regex(
+            pattern = """(?m)^\s*(\d{1,3}|\?)\s*(?:[:：.)-]|번)\s*([1-5?])\s*(?:번)?\b""",
+        )
+        val VERBOSE_ANSWER_REGEX = Regex(
+            pattern = """(?is)(\d{1,3})\s*번.{0,100}?(?:정답|답|answer)\D{0,20}([1-5?])\s*(?:번)?""",
+        )
         val STUDY_PROMPT = """
 You solve visible Korean multiple-choice study questions from camera images.
 The user may provide the original frame plus cropped versions of the same page.
