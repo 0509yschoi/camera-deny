@@ -36,6 +36,7 @@ import kotlinx.coroutines.withTimeout
 private const val TAG = "UvcCameraCapture"
 private const val CAMERA_WARMUP_MS = 800L
 private const val CAMERA_OPEN_TIMEOUT_MS = 10_000L
+private const val CAMERA_RETRY_DELAY_MS = 300L
 
 @Singleton
 class UvcCameraCapture @Inject constructor(
@@ -57,53 +58,7 @@ class UvcCameraCapture @Inject constructor(
         val st = SurfaceTexture(0).also { surfaceTexture = it }
         val sf = Surface(st).also { surface = it }
 
-        val cam = CameraUVC(context, usbDevice)
-        cam.setUsbControlBlock(ctrlBlock)
-        cam.setCameraStateCallBack(object : ICameraStateCallBack {
-            override fun onCameraState(
-                self: MultiCameraClient.ICamera,
-                code: ICameraStateCallBack.State,
-                msg: String?,
-            ) {
-                Log.d(TAG, "Camera state: $code / $msg")
-            }
-        })
-
-        val request = CameraRequest.Builder()
-            .setFrontCamera(false)
-            .setPreviewWidth(1920)
-            .setPreviewHeight(1080)
-            .create()
-
-        camera = withTimeout(CAMERA_OPEN_TIMEOUT_MS) {
-            suspendCancellableCoroutine { cont ->
-                cam.setCameraStateCallBack(object : ICameraStateCallBack {
-                    override fun onCameraState(
-                        self: MultiCameraClient.ICamera,
-                        code: ICameraStateCallBack.State,
-                        msg: String?,
-                    ) {
-                        when (code) {
-                            ICameraStateCallBack.State.OPENED -> {
-                                if (cont.isActive) cont.resume(cam)
-                            }
-                            ICameraStateCallBack.State.ERROR -> {
-                                if (cont.isActive) {
-                                    cont.resumeWithException(
-                                        IllegalStateException("Camera error: $msg"),
-                                    )
-                                }
-                            }
-                            else -> {}
-                        }
-                    }
-                })
-                cont.invokeOnCancellation {
-                    runCatching { cam.closeCamera() }
-                }
-                cam.openCamera(sf, request)
-            }
-        }
+        camera = openCameraWithFallback(usbDevice, ctrlBlock, sf)
         // Give AE/AWB time to settle before the first capture
         delay(CAMERA_WARMUP_MS)
         Log.d(TAG, "USB camera connected")
@@ -111,6 +66,74 @@ class UvcCameraCapture @Inject constructor(
 
     override suspend fun captureJpeg(): CapturedImage {
         return captureJpegs(count = 1, delayMillis = 0L).first()
+    }
+
+    private suspend fun openCameraWithFallback(
+        usbDevice: UsbDevice,
+        ctrlBlock: USBMonitor.UsbControlBlock,
+        sf: Surface,
+    ): CameraUVC {
+        val attempts = listOf(
+            CameraSize(1920, 1080),
+            CameraSize(1280, 720),
+            CameraSize(640, 480),
+        )
+        var lastError: Throwable? = null
+        for (size in attempts) {
+            val cam = CameraUVC(context, usbDevice)
+            cam.setUsbControlBlock(ctrlBlock)
+            val request = CameraRequest.Builder()
+                .setFrontCamera(false)
+                .setPreviewWidth(size.width)
+                .setPreviewHeight(size.height)
+                .create()
+            val result = runCatching {
+                openCameraOnce(cam, sf, request, "${size.width}x${size.height}")
+            }
+            result.onSuccess { return it }
+            lastError = result.exceptionOrNull()
+            Log.w(TAG, "Open camera failed at ${size.width}x${size.height}", lastError)
+            runCatching { cam.closeCamera() }
+            delay(CAMERA_RETRY_DELAY_MS)
+        }
+        throw IllegalStateException(
+            "Camera open failed for all preview sizes. Try unplugging and reconnecting the OTG camera.",
+            lastError,
+        )
+    }
+
+    private suspend fun openCameraOnce(
+        cam: CameraUVC,
+        sf: Surface,
+        request: CameraRequest,
+        label: String,
+    ): CameraUVC = withTimeout(CAMERA_OPEN_TIMEOUT_MS) {
+        suspendCancellableCoroutine { cont ->
+            cam.setCameraStateCallBack(object : ICameraStateCallBack {
+                override fun onCameraState(
+                    self: MultiCameraClient.ICamera,
+                    code: ICameraStateCallBack.State,
+                    msg: String?,
+                ) {
+                    Log.d(TAG, "Camera state($label): $code / $msg")
+                    when (code) {
+                        ICameraStateCallBack.State.OPENED -> {
+                            if (cont.isActive) cont.resume(cam)
+                        }
+                        ICameraStateCallBack.State.ERROR -> {
+                            if (cont.isActive) {
+                                cont.resumeWithException(IllegalStateException("Camera error: $msg"))
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+            })
+            cont.invokeOnCancellation {
+                runCatching { cam.closeCamera() }
+            }
+            cam.openCamera(sf, request)
+        }
     }
 
     override suspend fun captureJpegs(count: Int, delayMillis: Long): List<CapturedImage> {
@@ -309,6 +332,11 @@ class UvcCameraCapture @Inject constructor(
             a.vendorId == b.vendorId &&
             a.productId == b.productId
     }
+
+    private data class CameraSize(
+        val width: Int,
+        val height: Int,
+    )
 }
 
 private class ReceiverSafeContext(base: Context) : ContextWrapper(base) {
