@@ -34,30 +34,12 @@ class OpenAiImageAnalyzer @Inject constructor(
         }
         val content = buildList {
             add(InputContent(type = "input_text", text = STUDY_PROMPT))
-            safeImages.forEachIndexed { index, image ->
-                add(InputContent(type = "input_text", text = "Frame ${index + 1} original"))
+            safeImages.lastOrNull()?.let { image ->
+                add(InputContent(type = "input_text", text = "Reference original frame"))
                 add(image.toInputContent())
-                createDocumentCrop(image.bytes)?.let { crop ->
-                    add(InputContent(type = "input_text", text = "Frame ${index + 1} document crop"))
-                    add(
-                        CapturedImage(bytes = crop, mimeType = "image/jpeg")
-                            .toInputContent(),
-                    )
-                }
-                createTextRegionCrop(image.bytes)?.let { crop ->
-                    add(InputContent(type = "input_text", text = "Frame ${index + 1} text crop"))
-                    add(
-                        CapturedImage(bytes = crop, mimeType = "image/jpeg")
-                            .toInputContent(),
-                    )
-                }
-                createEnhancedTextRegionCrop(image.bytes)?.let { crop ->
-                    add(InputContent(type = "input_text", text = "Frame ${index + 1} enhanced text crop"))
-                    add(
-                        CapturedImage(bytes = crop, mimeType = "image/jpeg")
-                            .toInputContent(),
-                    )
-                }
+            }
+            safeImages.forEachIndexed { index, image ->
+                addBestReadingCrop(index, image)
             }
         }
         val request = ResponseRequest(
@@ -82,6 +64,15 @@ class OpenAiImageAnalyzer @Inject constructor(
             type = "input_image",
             imageUrl = "data:$mimeType;base64,$base64",
         )
+    }
+
+    private fun MutableList<InputContent>.addBestReadingCrop(index: Int, image: CapturedImage) {
+        val crop = createEnhancedTextRegionCrop(image.bytes)
+            ?: createTextRegionCrop(image.bytes)
+            ?: createDocumentCrop(image.bytes)
+            ?: return
+        add(InputContent(type = "input_text", text = "Frame ${index + 1} best reading crop"))
+        add(CapturedImage(bytes = crop, mimeType = "image/jpeg").toInputContent())
     }
 
     private fun createDocumentCrop(bytes: ByteArray): ByteArray? {
@@ -133,10 +124,10 @@ class OpenAiImageAnalyzer @Inject constructor(
             if (text.width < bitmap.width / 5 || text.height < bitmap.height / 5) return null
 
             val cropped = Bitmap.createBitmap(bitmap, text.left, text.top, text.width, text.height)
-            val scaled = scaleForReading(cropped, targetMaxSide = 2200, maxScale = 3.0f)
+            val scaled = scaleForReading(cropped, targetMaxSide = 1800, maxScale = 2.5f)
             val enhanced = enhanceForReading(scaled)
             val out = ByteArrayOutputStream()
-            enhanced.compress(Bitmap.CompressFormat.JPEG, 98, out)
+            enhanced.compress(Bitmap.CompressFormat.JPEG, 92, out)
             enhanced.recycle()
             if (scaled !== cropped) scaled.recycle()
             cropped.recycle()
@@ -327,8 +318,8 @@ class OpenAiImageAnalyzer @Inject constructor(
         )
         val STUDY_PROMPT = """
 You solve visible Korean multiple-choice study questions from camera images.
-The user provides up to five consecutive camera frames of the same page, plus crops and high-contrast reading aids.
-Use all frames together. Combine the sharpest visible text from different frames before choosing answers.
+The user provides one reference frame plus up to five cropped reading aids from consecutive frames of the same page.
+Use all reading aids together. Combine the sharpest visible text from different frames before choosing answers.
 
 Return ONLY question numbers and answer choice numbers.
 No explanation. No copied text. No confidence text. No greetings.
