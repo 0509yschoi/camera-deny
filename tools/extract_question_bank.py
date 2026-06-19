@@ -12,6 +12,11 @@ ANSWER_MARKS = {
     "③": "3",
     "④": "4",
     "⑤": "5",
+    "❶": "1",
+    "❷": "2",
+    "❸": "3",
+    "❹": "4",
+    "❺": "5",
 }
 
 
@@ -156,7 +161,8 @@ def convert_2025(pdf_path: Path) -> list[dict]:
 
 
 def convert_numbered(pdf_path: Path, source: str) -> list[dict]:
-    text = "\n".join((page.extract_text() or "") for page in pdfplumber.open(pdf_path).pages)
+    with pdfplumber.open(pdf_path) as pdf:
+        text = "\n".join((page.extract_text() or "") for page in pdf.pages)
     answers = parse_answer_preview(text)
     records: list[dict] = []
     for number, block in split_numbered_question_blocks(text):
@@ -166,19 +172,75 @@ def convert_numbered(pdf_path: Path, source: str) -> list[dict]:
     return records
 
 
+def convert_cbt(pdf_path: Path, source: str) -> list[dict]:
+    text = extract_columns(pdf_path)
+    records: list[dict] = []
+    for number, block in split_cbt_question_blocks(text):
+        if number < 1 or number > 40:
+            continue
+        record = parse_cbt_question_block(number, block, source)
+        if record:
+            records.append(record)
+    return records
+
+
+def split_cbt_question_blocks(text: str) -> list[tuple[int, str]]:
+    matches = list(re.finditer(r"(?m)^\s*(\d{1,2})\.\s+", text))
+    blocks: list[tuple[int, str]] = []
+    for index, match in enumerate(matches):
+        number = int(match.group(1))
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        blocks.append((number, text[start:end]))
+    return blocks
+
+
+def parse_cbt_question_block(number: int, block: str, source: str) -> dict | None:
+    question_area = re.sub(r"^\s*\d{1,2}\.\s*", "", block).strip()
+    choice_matches = list(re.finditer(r"[①②③④⑤❶❷❸❹❺]", question_area))
+    if len(choice_matches) < 4:
+        return None
+
+    stem = normalize(question_area[: choice_matches[0].start()])
+    choices: list[str] = []
+    answer: str | None = None
+    for idx, match in enumerate(choice_matches):
+        marker = match.group(0)
+        if marker in "❶❷❸❹❺":
+            answer = ANSWER_MARKS[marker]
+        start = match.end()
+        end = choice_matches[idx + 1].start() if idx + 1 < len(choice_matches) else len(question_area)
+        choices.append(normalize(question_area[start:end]))
+
+    if not stem or not answer:
+        return None
+
+    return {
+        "id": f"{source}-adminlaw-{number:02d}",
+        "source": source.replace("-", " "),
+        "subject": "행정법총론",
+        "question": stem,
+        "choices": choices[:5],
+        "answer": answer,
+        "explanation": "",
+        "keywords": make_keywords(stem, choices),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--source", default="2025-national-9")
-    parser.add_argument("--format", choices=["columns", "numbered"], default="columns")
+    parser.add_argument("--format", choices=["columns", "numbered", "cbt"], default="columns")
     args = parser.parse_args()
 
-    records = (
-        convert_2025(args.pdf)
-        if args.format == "columns"
-        else convert_numbered(args.pdf, args.source)
-    )
+    if args.format == "columns":
+        records = convert_2025(args.pdf)
+    elif args.format == "numbered":
+        records = convert_numbered(args.pdf, args.source)
+    else:
+        records = convert_cbt(args.pdf, args.source)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
         for record in records:
