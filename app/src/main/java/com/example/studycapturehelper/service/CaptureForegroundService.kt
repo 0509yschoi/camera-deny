@@ -80,9 +80,16 @@ class CaptureForegroundService : LifecycleService() {
                 sessionStatus.updateProgress("Connecting USB camera...")
                 withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
                 Log.d(TAG, "Camera connected; capture loop started")
+                var activeWindowStartedAt = SystemClock.elapsedRealtime()
                 while (true) {
                     val settings = settingsRepository.settings.first()
                     applyDoNotDisturbIfNeeded(settings.dndEnabled)
+                    if (SystemClock.elapsedRealtime() - activeWindowStartedAt >= ACTIVE_WINDOW_MS) {
+                        coolDownCamera()
+                        sessionStatus.updateProgress("Reconnecting USB camera after cooldown...")
+                        withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
+                        activeWindowStartedAt = SystemClock.elapsedRealtime()
+                    }
                     Log.d(TAG, "Capturing camera burst")
                     sessionStatus.updateProgress("USB camera connected. Capturing 5 frames...")
                     val captureStartedAt = SystemClock.elapsedRealtime()
@@ -119,6 +126,22 @@ class CaptureForegroundService : LifecycleService() {
             sessionStatus.updateLastImage(captured.bytes)
         }
         return frames
+    }
+
+    private suspend fun coolDownCamera() {
+        Log.d(TAG, "Cooling down camera for ${COOLDOWN_MS}ms")
+        sessionStatus.updateProgress("Cooling down for ${COOLDOWN_MS / 60_000} minutes...")
+        runCatching { camera.disconnect() }
+        val startedAt = SystemClock.elapsedRealtime()
+        while (true) {
+            val remainingMs = COOLDOWN_MS - (SystemClock.elapsedRealtime() - startedAt)
+            if (remainingMs <= 0) break
+            val remainingSeconds = ((remainingMs + 999) / 1000).coerceAtLeast(1)
+            sessionStatus.updateProgress(
+                "Cooling down... ${remainingSeconds / 60}m ${remainingSeconds % 60}s until restart",
+            )
+            delay(minOf(remainingMs, COOLDOWN_TICK_MS))
+        }
     }
 
     private fun stopSession() {
@@ -188,5 +211,8 @@ class CaptureForegroundService : LifecycleService() {
         private const val BURST_FRAME_DELAY_MS = 150L
         private const val CAMERA_CONNECT_TIMEOUT_MS = 10_000L
         private const val CAPTURE_TIMEOUT_MS = 8_000L
+        private const val ACTIVE_WINDOW_MS = 20 * 60 * 1000L
+        private const val COOLDOWN_MS = 4 * 60 * 1000L
+        private const val COOLDOWN_TICK_MS = 10_000L
     }
 }
