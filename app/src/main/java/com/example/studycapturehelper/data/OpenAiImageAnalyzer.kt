@@ -34,6 +34,12 @@ class OpenAiImageAnalyzer @Inject constructor(
                         .toInputContent(),
                 )
             }
+            createTextRegionCrop(image.bytes)?.let { crop ->
+                add(
+                    CapturedImage(bytes = crop, mimeType = "image/jpeg")
+                        .toInputContent(),
+                )
+            }
         }
         val request = ResponseRequest(
             model = "gpt-4o",
@@ -61,44 +67,12 @@ class OpenAiImageAnalyzer @Inject constructor(
     private fun createDocumentCrop(bytes: ByteArray): ByteArray? {
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
         try {
-            val step = max(1, min(bitmap.width, bitmap.height) / 240)
-            var minX = bitmap.width
-            var minY = bitmap.height
-            var maxX = -1
-            var maxY = -1
-            var hits = 0
-
-            for (y in 0 until bitmap.height step step) {
-                for (x in 0 until bitmap.width step step) {
-                    val pixel = bitmap.getPixel(x, y)
-                    val r = (pixel shr 16) and 0xFF
-                    val g = (pixel shr 8) and 0xFF
-                    val b = pixel and 0xFF
-                    val brightness = (r + g + b) / 3
-                    val channelSpread = maxOf(r, g, b) - minOf(r, g, b)
-                    if (brightness > 130 && channelSpread < 95) {
-                        minX = min(minX, x)
-                        minY = min(minY, y)
-                        maxX = max(maxX, x)
-                        maxY = max(maxY, y)
-                        hits++
-                    }
-                }
-            }
-
-            if (hits < 200 || maxX <= minX || maxY <= minY) return null
-
-            val margin = 24
-            minX = max(0, minX - margin)
-            minY = max(0, minY - margin)
-            maxX = min(bitmap.width - 1, maxX + margin)
-            maxY = min(bitmap.height - 1, maxY + margin)
-
-            val width = maxX - minX + 1
-            val height = maxY - minY + 1
+            val bounds = findDocumentBounds(bitmap) ?: return null
+            val width = bounds.width
+            val height = bounds.height
             if (width < bitmap.width / 3 || height < bitmap.height / 3) return null
 
-            val cropped = Bitmap.createBitmap(bitmap, minX, minY, width, height)
+            val cropped = Bitmap.createBitmap(bitmap, bounds.left, bounds.top, width, height)
             val scaled = scaleForReading(cropped)
             val out = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, 95, out)
@@ -108,6 +82,96 @@ class OpenAiImageAnalyzer @Inject constructor(
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private fun createTextRegionCrop(bytes: ByteArray): ByteArray? {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        try {
+            val document = findDocumentBounds(bitmap) ?: Bounds(0, 0, bitmap.width - 1, bitmap.height - 1)
+            val step = max(1, min(document.width, document.height) / 320)
+            var minX = bitmap.width
+            var minY = bitmap.height
+            var maxX = -1
+            var maxY = -1
+            var hits = 0
+
+            for (y in document.top..document.bottom step step) {
+                for (x in document.left..document.right step step) {
+                    val pixel = bitmap.getPixel(x, y)
+                    val r = (pixel shr 16) and 0xFF
+                    val g = (pixel shr 8) and 0xFF
+                    val b = pixel and 0xFF
+                    val brightness = (r + g + b) / 3
+                    val channelSpread = maxOf(r, g, b) - minOf(r, g, b)
+                    if (brightness < 145 && channelSpread < 90) {
+                        minX = min(minX, x)
+                        minY = min(minY, y)
+                        maxX = max(maxX, x)
+                        maxY = max(maxY, y)
+                        hits++
+                    }
+                }
+            }
+
+            if (hits < 80 || maxX <= minX || maxY <= minY) return null
+
+            val margin = 48
+            minX = max(0, minX - margin)
+            minY = max(0, minY - margin)
+            maxX = min(bitmap.width - 1, maxX + margin)
+            maxY = min(bitmap.height - 1, maxY + margin)
+
+            val width = maxX - minX + 1
+            val height = maxY - minY + 1
+            if (width < bitmap.width / 5 || height < bitmap.height / 5) return null
+
+            val cropped = Bitmap.createBitmap(bitmap, minX, minY, width, height)
+            val scaled = scaleForReading(cropped)
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 96, out)
+            if (scaled !== cropped) scaled.recycle()
+            cropped.recycle()
+            return out.toByteArray()
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun findDocumentBounds(bitmap: Bitmap): Bounds? {
+        val step = max(1, min(bitmap.width, bitmap.height) / 240)
+        var minX = bitmap.width
+        var minY = bitmap.height
+        var maxX = -1
+        var maxY = -1
+        var hits = 0
+
+        for (y in 0 until bitmap.height step step) {
+            for (x in 0 until bitmap.width step step) {
+                val pixel = bitmap.getPixel(x, y)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                val brightness = (r + g + b) / 3
+                val channelSpread = maxOf(r, g, b) - minOf(r, g, b)
+                if (brightness > 130 && channelSpread < 95) {
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                    hits++
+                }
+            }
+        }
+
+        if (hits < 200 || maxX <= minX || maxY <= minY) return null
+
+        val margin = 24
+        return Bounds(
+            left = max(0, minX - margin),
+            top = max(0, minY - margin),
+            right = min(bitmap.width - 1, maxX + margin),
+            bottom = min(bitmap.height - 1, maxY + margin),
+        )
     }
 
     private fun scaleForReading(bitmap: Bitmap): Bitmap {
@@ -125,23 +189,35 @@ class OpenAiImageAnalyzer @Inject constructor(
 
     private companion object {
         val STUDY_PROMPT = """
-사진 속 한국어 객관식 문제를 읽어라. 원본 사진과 문서 영역을 자른 사진이 함께 제공될 수 있다.
+You are helping with Korean multiple-choice study material.
+The user may provide the original camera frame plus one or more cropped versions of the same page.
 
-먼저 문제 번호, 질문, 선택지를 실제로 읽을 수 있는지 확인해라.
-선택지의 핵심 문장을 충분히 읽을 수 있을 때만 정답을 골라라.
-글자가 흐려서 선택지를 구분하기 어렵다면 추측하지 말고 판독 불가라고 답해라.
+Read the clearest visible question. Prefer a visible numbered question near the center or bottom of the page.
+Do not refuse just because some words are blurry. If the question number and at least two choices are distinguishable,
+give the best answer using the visible text and general subject knowledge. Mark uncertainty clearly instead of saying
+unreadable. Use "unreadable" only when the question and choices cannot be identified at all.
 
-형식:
-판독: (읽은 문제 번호와 핵심 문장 또는 "판독 불가")
-정답: X번 또는 판독 불가
-이유: (짧게)
+Reply in Korean, briefly, in this format:
+판독: question number and the key phrase you could read, or 판독 불가
+정답: X번, or 판독 불가
+확신: 높음 / 중간 / 낮음
+이유: one short reason
 
-규칙:
-- 여러 문제가 보이면 가장 크고 선명한 문제 하나만 답변
-- 문제 번호가 보이면 반드시 포함
-- 보이는 글자와 행정법 지식을 함께 사용하되, 보이지 않는 선택지를 지어내지 말 것
-- 확신이 낮으면 "추정 70%: X번"처럼 표시
-- 개인정보는 언급하지 말 것
-""".trimIndent()
+Rules:
+- If several questions are visible, answer the clearest complete one.
+- If a question number is visible, include it.
+- Do not invent hidden choices, but do use partially visible wording when it is enough to choose.
+- Never mention privacy or policy warnings.
+        """.trimIndent()
+    }
+
+    private data class Bounds(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+    ) {
+        val width: Int get() = right - left + 1
+        val height: Int get() = bottom - top + 1
     }
 }
