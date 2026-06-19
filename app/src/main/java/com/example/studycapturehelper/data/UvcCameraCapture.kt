@@ -56,13 +56,6 @@ class UvcCameraCapture @Inject constructor(
 
         val cam = CameraUVC(context, usbDevice)
         cam.setUsbControlBlock(ctrlBlock)
-        val previewSize = runCatching {
-            cam.getAllPreviewSizes(null)
-                .maxByOrNull { size -> size.width * size.height }
-        }.getOrNull()
-        previewSize?.let {
-            Log.d(TAG, "Using UVC preview size ${it.width}x${it.height}")
-        }
         cam.setCameraStateCallBack(object : ICameraStateCallBack {
             override fun onCameraState(
                 self: MultiCameraClient.ICamera,
@@ -75,12 +68,6 @@ class UvcCameraCapture @Inject constructor(
 
         val request = CameraRequest.Builder()
             .setFrontCamera(false)
-            .also { builder ->
-                previewSize?.let {
-                    builder.setPreviewWidth(it.width)
-                    builder.setPreviewHeight(it.height)
-                }
-            }
             .create()
 
         camera = suspendCoroutine { cont ->
