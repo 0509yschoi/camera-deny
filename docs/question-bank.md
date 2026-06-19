@@ -39,7 +39,31 @@ Keep explanations short. The app only needs enough context to choose the likely 
 
 ## Current Import Notes
 
-- Current bundled data includes admin-law and public-administration records. Keep `subject` values distinct so retrieval debug stays readable.
+- Current bundled data includes admin-law, public-administration, and Korean-history records. Keep `subject` values distinct so retrieval debug stays readable.
+
+### Korean History
+
+- `9급국가직공무원한국사20250405(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20240323(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20230408(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20220402(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20210417(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20200711(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20190406(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20180407(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20170408(교사용).hwp`: imported 20 Korean-history questions.
+- `9급국가직공무원한국사20160409(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20240622(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20230610(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20220618(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20210605(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20200613(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20190615(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20180519(교사용).hwp`: imported 20 Korean-history questions.
+- `9급지방직공무원한국사20171216(교사용).hwp`: imported 20 Korean-history questions.
+
+### Public Administration
+
 - `AS_NJJ.pdf`: imported 20 public-administration questions from 2011 national 9.
 - `9급지방직공무원행정학개론20250621(교사용).hwp`: imported 20 public-administration questions.
 - `9급지방직공무원행정학개론20240622(교사용).hwp`: imported 20 public-administration questions.
@@ -54,6 +78,9 @@ Keep explanations short. The app only needs enough context to choose the likely 
 - `9급지방직공무원행정학개론20170408(교사용).hwp`: imported 20 public-administration questions.
 - `9급지방직공무원행정학개론20160618(교사용).hwp`: imported 20 public-administration questions.
 - `9급지방직공무원행정학개론20160319(교사용).hwp`: imported 20 public-administration questions.
+
+### Administrative Law
+
 - `9급국가직공무원행정법총론20250405(교사용).hwp`: imported 20 admin-law questions.
 - `9급국가직공무원행정법총론20240323(교사용).hwp`: imported 20 admin-law questions.
 - `9급국가직공무원행정법총론20230408(교사용).hwp`: imported 20 admin-law questions.
