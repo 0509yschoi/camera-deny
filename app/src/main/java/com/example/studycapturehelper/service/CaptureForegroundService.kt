@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -70,11 +71,20 @@ class CaptureForegroundService : LifecycleService() {
                 while (true) {
                     val settings = settingsRepository.settings.first()
                     Log.d(TAG, "Capturing camera burst")
+                    sessionStatus.updateProgress("Capturing 5 frames...")
+                    val captureStartedAt = SystemClock.elapsedRealtime()
                     val captured = captureBurst()
-                    Log.d(TAG, "Camera burst captured: ${captured.size} frames")
+                    val captureMs = SystemClock.elapsedRealtime() - captureStartedAt
+                    Log.d(TAG, "Camera burst captured: ${captured.size} frames in ${captureMs}ms")
                     captured.lastOrNull()?.let { sessionStatus.updateLastImage(it.bytes) }
+                    sessionStatus.updateProgress("Analyzing ${captured.size} frames... capture=${captureMs / 1000.0}s")
+                    val analysisStartedAt = SystemClock.elapsedRealtime()
                     val analysis = analyzer.analyze(captured)
+                    val analysisMs = SystemClock.elapsedRealtime() - analysisStartedAt
                     sessionStatus.updateAnalysis(analysis.text, analysis.debugText)
+                    sessionStatus.updateProgress(
+                        "Done. capture=${captureMs / 1000.0}s, analyze=${analysisMs / 1000.0}s",
+                    )
                     if (settings.speechEnabled) speechOutput.speak(analysis.text)
 
                     val multiplier = thermalPolicy.multiplier.first()

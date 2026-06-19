@@ -20,6 +20,9 @@ class SessionStatus @Inject constructor() {
     private val _lastDebugText = MutableStateFlow<String?>(null)
     val lastDebugText: StateFlow<String?> = _lastDebugText
 
+    private val _progressText = MutableStateFlow<String?>(null)
+    val progressText: StateFlow<String?> = _progressText
+
     fun update(state: SessionState) {
         _state.value = state
     }
@@ -31,5 +34,9 @@ class SessionStatus @Inject constructor() {
     fun updateAnalysis(text: String, debugText: String?) {
         _lastAnalysisText.value = text
         _lastDebugText.value = debugText
+    }
+
+    fun updateProgress(text: String?) {
+        _progressText.value = text
     }
 }

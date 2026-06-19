@@ -42,6 +42,7 @@ class MainViewModel @Inject constructor(
     val lastImageBytes: StateFlow<ByteArray?> = sessionStatus.lastImageBytes
     val lastAnalysisText: StateFlow<String?> = sessionStatus.lastAnalysisText
     val lastDebugText: StateFlow<String?> = sessionStatus.lastDebugText
+    val progressText: StateFlow<String?> = sessionStatus.progressText
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 

@@ -324,8 +324,8 @@ You solve visible Korean multiple-choice study questions from camera images.
 The user provides one reference frame plus up to five cropped reading aids from consecutive frames of the same page.
 Use all reading aids together. Combine the sharpest visible text from different frames before choosing answers.
 
-Return two sections: ANSWERS and OCR_DEBUG.
-Keep ANSWERS answer-only. OCR_DEBUG is for troubleshooting the recognized text.
+Return three sections: ANSWERS, OCR_DEBUG, SOLVE_DEBUG.
+Keep ANSWERS answer-only. OCR_DEBUG and SOLVE_DEBUG are for troubleshooting.
 Never reconstruct or complete OCR_DEBUG from legal knowledge, common exam patterns, or memory.
 
 Output format:
@@ -337,6 +337,11 @@ OCR_DEBUG:
 18 choices: 1=... / 2=... / 3=... / 4=...
 19 question: ...
 19 choices: 1=... / 2=... / 3=... / 4=...
+SOLVE_DEBUG:
+18 asks: correct / incorrect / unknown
+18 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
+19 asks: correct / incorrect / unknown
+19 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
 
 Rules:
 - Answer every clearly visible complete question, not just one.
@@ -354,6 +359,9 @@ Rules:
 - If no question number can be read, output "?: ?".
 - In OCR_DEBUG, mark uncertain characters with [?] instead of silently guessing.
 - It is better to output "19: ?" than to guess or invent choices.
+- In SOLVE_DEBUG, first identify whether the question asks for the correct choice, incorrect choice, or exception.
+- If SOLVE_DEBUG has two plausible choices or the ask direction is unknown, output "questionNumber: ?" in ANSWERS.
+- Be especially careful with Korean phrases meaning incorrect/exception, such as "옳지 않은", "타당하지 않은", "틀린", and "아닌".
 - Keep ANSWERS under 5 lines.
         """.trimIndent()
     }

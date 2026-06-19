@@ -230,6 +230,7 @@ private fun CaptureScreen(
     val analyzeState by viewModel.analyzeState.collectAsState()
     val lastAnalysisText by viewModel.lastAnalysisText.collectAsState()
     val lastDebugText by viewModel.lastDebugText.collectAsState()
+    val progressText by viewModel.progressText.collectAsState()
     val lastImageBytes by viewModel.lastImageBytes.collectAsState()
     var showPreview by remember { mutableStateOf(false) }
     var showDebug by remember { mutableStateOf(false) }
@@ -296,6 +297,10 @@ private fun CaptureScreen(
                 enabled = lastImageBytes != null,
             ) {
                 Text("캡처 저장")
+            }
+            progressText?.let { progress ->
+                Spacer(Modifier.height(12.dp))
+                Text(progress, style = MaterialTheme.typography.bodySmall)
             }
             visibleAnalysis?.let { result ->
                 Spacer(Modifier.height(16.dp))
