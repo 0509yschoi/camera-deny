@@ -49,89 +49,55 @@ class OpenAiImageAnalyzer @Inject constructor(
             model = OCR_MODEL,
             reasoningEffort = null,
         )
-        val primarySolveText = createTextResponse(
+        val solveAttempt = createBestReasoningResponse(
             token = token,
             content = listOf(
                 InputContent(type = "input_text", text = SOLVE_PROMPT),
                 InputContent(type = "input_text", text = ocrText),
             ),
-            maxOutputTokens = 2_000,
-            model = REASONING_MODEL,
-            reasoningEffort = "medium",
         )
-        val solveText = primarySolveText.ifBlank {
-            createTextResponse(
-                token = token,
-                content = listOf(
-                    InputContent(type = "input_text", text = SOLVE_PROMPT),
-                    InputContent(type = "input_text", text = ocrText),
-                ),
-                maxOutputTokens = 900,
-                model = OCR_MODEL,
-                reasoningEffort = null,
-            )
-        }
-        val primaryVerifyText = createTextResponse(
-            token = token,
-            content = listOf(
-                InputContent(type = "input_text", text = VERIFY_PROMPT),
-                InputContent(
-                    type = "input_text",
-                    text = buildString {
-                        appendLine("OCR_TEXT:")
-                        appendLine(ocrText)
-                        appendLine()
-                        appendLine("PROPOSED_SOLUTION:")
-                        append(solveText)
-                    },
-                ),
-            ),
-            maxOutputTokens = 2_000,
-            model = REASONING_MODEL,
-            reasoningEffort = "medium",
-        )
-        val verifyText = primaryVerifyText.ifBlank {
-            createTextResponse(
-                token = token,
-                content = listOf(
-                    InputContent(type = "input_text", text = VERIFY_PROMPT),
-                    InputContent(
-                        type = "input_text",
-                        text = buildString {
-                            appendLine("OCR_TEXT:")
-                            appendLine(ocrText)
-                            appendLine()
-                            appendLine("PROPOSED_SOLUTION:")
-                            append(solveText)
-                        },
-                    ),
-                ),
-                maxOutputTokens = 900,
-                model = OCR_MODEL,
-                reasoningEffort = null,
-            )
-        }
-        val finalText = verifyText.ifBlank { solveText }
         return StudyAnalysis(
-            text = formatAnswerOnly(finalText),
+            text = formatAnswerOnly(solveAttempt.text),
             debugText = buildString {
                 appendLine("OCR_RESULT:")
                 appendLine(ocrText.ifBlank { "(empty)" })
                 appendLine()
                 appendLine("SOLVE_RESULT:")
-                appendLine(solveText.ifBlank { "(empty)" })
-                if (primarySolveText.isBlank() && solveText.isNotBlank()) {
-                    appendLine("(solve fallback used)")
-                }
-                appendLine()
-                appendLine("VERIFY_RESULT:")
-                append(verifyText.ifBlank { "(empty)" })
-                if (primaryVerifyText.isBlank() && verifyText.isNotBlank()) {
-                    appendLine()
-                    append("(verify fallback used)")
-                }
+                appendLine(solveAttempt.text.ifBlank { "(empty)" })
+                appendLine("SOLVE_MODEL: ${solveAttempt.model.ifBlank { "(none)" }}")
+                solveAttempt.notes.forEach(::appendLine)
             },
         )
+    }
+
+    private suspend fun createBestReasoningResponse(
+        token: String,
+        content: List<InputContent>,
+    ): TextAttempt {
+        val notes = mutableListOf<String>()
+        for (model in REASONING_MODELS) {
+            val text = runCatching {
+                createTextResponse(
+                    token = token,
+                    content = content,
+                    maxOutputTokens = REASONING_MAX_OUTPUT_TOKENS,
+                    model = model,
+                    reasoningEffort = "high",
+                )
+            }.getOrElse { error ->
+                notes += "$model error: ${error.message ?: error::class.java.simpleName}"
+                ""
+            }
+            if (text.isNotBlank()) {
+                return TextAttempt(
+                    text = text,
+                    model = model,
+                    notes = notes,
+                )
+            }
+            notes += "$model returned empty output"
+        }
+        return TextAttempt(text = "", model = "", notes = notes)
     }
 
     private suspend fun createTextResponse(
@@ -400,7 +366,8 @@ class OpenAiImageAnalyzer @Inject constructor(
     private companion object {
         const val MAX_ANALYSIS_FRAMES = 5
         const val OCR_MODEL = "gpt-4o"
-        const val REASONING_MODEL = "gpt-5.4-mini"
+        const val REASONING_MAX_OUTPUT_TOKENS = 5_000
+        val REASONING_MODELS = listOf("gpt-5.5", "gpt-5.4-mini")
         val STRICT_ANSWER_REGEX = Regex(
             pattern = "(?im)^\\s*(?:q(?:uestion)?\\s*)?(\\d{1,3}|\\?)\\s*" +
                 "(?:[:.)\\]-]|->|=>|\\uB300|\\uBC88)?\\s*" +
@@ -447,8 +414,9 @@ Rules:
         """.trimIndent()
 
         val SOLVE_PROMPT = """
-You solve Korean multiple-choice exam questions using ONLY the OCR text provided by the user.
-You cannot see the image. Do not invent missing stems or choices.
+You are a Korean civil-service exam multiple-choice answer engine.
+The user provides OCR text from public-law/admin-law style exam questions.
+Your goal is to match how Korean civil-service exam questions are normally answered, not to write a legal essay.
 
 Return two sections: ANSWERS and SOLVE_DEBUG.
 
@@ -463,44 +431,22 @@ SOLVE_DEBUG:
 19 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
 
 Rules:
-- Use only OCR text. If OCR contains "[?]" in important parts, treat that choice as unknown.
+- Use OCR text as the question source. If a choice has a small OCR typo but its exam concept is clear, infer the intended printed sentence.
 - First identify whether each question asks for the correct choice, incorrect choice, exception, or unknown.
-- Korean negative ask phrases include "not correct", "not valid", "wrong", "except", and "not".
-- If the ask direction is unknown, output "questionNumber: ?".
-- If two or more choices are plausible, output "questionNumber: ?".
-- If any required choice text is missing or mostly "[?]", output "questionNumber: ?".
-- Keep ANSWERS answer-only and under 5 lines.
-        """.trimIndent()
-
-        val VERIFY_PROMPT = """
-You are a strict verifier for Korean administrative-law multiple-choice answers.
-The user provides OCR text and a proposed solution. Re-check the legal reasoning from scratch.
-
-Return two sections: ANSWERS and VERIFY_DEBUG.
-
-Output format:
-ANSWERS:
-18: 2
-19: ?
-VERIFY_DEBUG:
-18 proposed: 4
-18 final: 2
-18 reason: short rule-based reason
-19 proposed: ?
-19 final: ?
-19 reason: insufficient OCR
-
-Rules:
-- Use only OCR text for the question and choices.
-- Do not trust the proposed solution. It may be wrong.
-- Re-evaluate each choice independently.
-- For questions asking for an incorrect/exception choice, choose the false choice, not the true choices.
-- If the proposed solution marked a choice true/false based on a questionable legal assumption, override it.
-- If the applicable legal rule is uncertain, output "questionNumber: ?" rather than guessing.
-- If OCR is incomplete for important choices, output "questionNumber: ?".
+- Korean negative ask phrases include "옳지 않은", "타당하지 않은", "잘못된", "아닌", "제외", and "않은".
+- Solve like a Korean civil-service test taker: use learned public-law/admin-law exam knowledge, repeated past-question patterns, and standard doctrine/case-law memory.
+- Do not produce explanations in ANSWERS. Pick the most likely answer unless the OCR is too incomplete to know the question or choices.
+- Use "?" only when the OCR omitted an essential choice or the question direction is unreadable.
+- If one choice is a familiar trap from past Korean civil-service exams, choose it even if other choices sound plausible.
 - Keep ANSWERS answer-only and under 5 lines.
         """.trimIndent()
     }
+
+    private data class TextAttempt(
+        val text: String,
+        val model: String,
+        val notes: List<String>,
+    )
 
     private data class Bounds(
         val left: Int,
