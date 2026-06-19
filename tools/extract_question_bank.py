@@ -25,6 +25,8 @@ ANSWER_MARKS = {
 def normalize(text: str) -> str:
     text = text.replace("\u00a0", " ")
     text = text.replace("\n", " ")
+    for junk in ("漠杳", "氠瑢", "捤獥汤捯慤桥潴景氠瑢"):
+        text = text.replace(junk, " ")
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
 
@@ -52,6 +54,27 @@ def parse_answer_preview(text: str) -> dict[int, str]:
     for number, mark in re.findall(r"\[(\d{1,2})번\s*해설\]\s*([①②③④⑤])", text):
         answers[int(number)] = ANSWER_MARKS[mark]
     return answers
+
+
+def make_record(
+    number: int,
+    source: str,
+    subject: str,
+    id_subject: str,
+    stem: str,
+    choices: list[str],
+    answer: str,
+) -> dict:
+    return {
+        "id": f"{source}-{id_subject}-{number:02d}",
+        "source": source.replace("-", " "),
+        "subject": subject,
+        "question": stem,
+        "choices": choices[:5],
+        "answer": answer,
+        "explanation": "",
+        "keywords": make_keywords(stem, choices),
+    }
 
 
 def split_question_blocks(text: str) -> list[tuple[int, str]]:
@@ -91,7 +114,14 @@ def trim_to_question_area(block: str) -> str:
     return block
 
 
-def parse_question_block(number: int, block: str, answer: str | None, source: str) -> dict | None:
+def parse_question_block(
+    number: int,
+    block: str,
+    answer: str | None,
+    source: str,
+    subject: str,
+    id_subject: str,
+) -> dict | None:
     question_area = trim_to_question_area(block)
     question_area = re.sub(r"^(?:문\s*)?\d{1,2}\.\s*", "", question_area).strip()
     choice_matches = list(re.finditer(r"[①②③④⑤]", question_area))
@@ -108,17 +138,7 @@ def parse_question_block(number: int, block: str, answer: str | None, source: st
     if not stem or not answer:
         return None
 
-    keywords = make_keywords(stem, choices)
-    return {
-        "id": f"{source}-adminlaw-{number:02d}",
-        "source": source.replace("-", " "),
-        "subject": "행정법총론",
-        "question": stem,
-        "choices": choices[:5],
-        "answer": answer,
-        "explanation": "",
-        "keywords": keywords,
-    }
+    return make_record(number, source, subject, id_subject, stem, choices, answer)
 
 
 def make_keywords(stem: str, choices: list[str]) -> list[str]:
@@ -151,45 +171,75 @@ def make_keywords(stem: str, choices: list[str]) -> list[str]:
     return keywords
 
 
-def convert_2025(pdf_path: Path) -> list[dict]:
+def convert_2025(
+    pdf_path: Path,
+    subject: str = "행정법총론",
+    id_subject: str = "adminlaw",
+) -> list[dict]:
     text = extract_columns(pdf_path)
     answers = parse_answer_preview(text)
     records: list[dict] = []
     for number, block in split_question_blocks(text):
-        record = parse_question_block(number, block, answers.get(number), "2025-national-9")
+        record = parse_question_block(
+            number,
+            block,
+            answers.get(number),
+            "2025-national-9",
+            subject,
+            id_subject,
+        )
         if record:
             records.append(record)
     return records
 
 
-def convert_numbered(pdf_path: Path, source: str) -> list[dict]:
+def convert_numbered(
+    pdf_path: Path,
+    source: str,
+    subject: str,
+    id_subject: str,
+) -> list[dict]:
     with pdfplumber.open(pdf_path) as pdf:
         text = "\n".join((page.extract_text() or "") for page in pdf.pages)
     answers = parse_answer_preview(text)
     records: list[dict] = []
     for number, block in split_numbered_question_blocks(text):
-        record = parse_question_block(number, block, answers.get(number), source)
+        record = parse_question_block(
+            number,
+            block,
+            answers.get(number),
+            source,
+            subject,
+            id_subject,
+        )
         if record:
             records.append(record)
     return records
 
 
-def convert_cbt(pdf_path: Path, source: str) -> list[dict]:
+def convert_cbt(pdf_path: Path, source: str, subject: str, id_subject: str) -> list[dict]:
     text = extract_columns(pdf_path)
-    return convert_cbt_text(text, source)
+    return convert_cbt_text(text, source, subject, id_subject)
 
 
-def convert_hwp_cbt(hwp_path: Path, source: str) -> list[dict]:
-    return convert_cbt_text(extract_hwp_text(hwp_path), source)
+def convert_hwp_cbt(hwp_path: Path, source: str, subject: str, id_subject: str) -> list[dict]:
+    return convert_cbt_text(extract_hwp_text(hwp_path), source, subject, id_subject)
 
 
-def convert_cbt_text(text: str, source: str) -> list[dict]:
+def convert_cbt_text(text: str, source: str, subject: str, id_subject: str) -> list[dict]:
     answer_table = parse_standalone_answer_table(text)
     records: list[dict] = []
     for number, block in split_cbt_question_blocks(text):
         if number < 1 or number > 40:
             continue
-        record = parse_cbt_question_block(number, block, source, answer_table.get(number))
+        record = parse_cbt_question_block(
+            number,
+            block,
+            source,
+            subject,
+            id_subject,
+            answer_table.get(number),
+        )
         if record:
             records.append(record)
     return records
@@ -229,6 +279,8 @@ def parse_cbt_question_block(
     number: int,
     block: str,
     source: str,
+    subject: str,
+    id_subject: str,
     table_answer: str | None = None,
 ) -> dict | None:
     question_area = trim_to_question_area(block)
@@ -251,16 +303,78 @@ def parse_cbt_question_block(
     if not stem or not answer:
         return None
 
-    return {
-        "id": f"{source}-adminlaw-{number:02d}",
-        "source": source.replace("-", " "),
-        "subject": "행정법총론",
-        "question": stem,
-        "choices": choices[:5],
-        "answer": answer,
-        "explanation": "",
-        "keywords": make_keywords(stem, choices),
-    }
+    return make_record(number, source, subject, id_subject, stem, choices, answer)
+
+
+def convert_bracket_answer(
+    pdf_path: Path,
+    source: str,
+    subject: str,
+    id_subject: str,
+) -> list[dict]:
+    with pdfplumber.open(pdf_path) as pdf:
+        text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+    answer_section_index = text.find("정답 및 해설")
+    question_text = text[:answer_section_index] if answer_section_index >= 0 else text
+    answers = parse_bracket_answers(text)
+    records: list[dict] = []
+    for number, block in split_compact_question_blocks(question_text):
+        record = parse_compact_question_with_answer(
+            number,
+            block,
+            answers.get(number),
+            source,
+            subject,
+            id_subject,
+        )
+        if record:
+            records.append(record)
+    return records
+
+
+def parse_bracket_answers(text: str) -> dict[int, str]:
+    answers: dict[int, str] = {}
+    for number, mark in re.findall(r"(?m)^\s*(\d{1,2})\.\s*\[정답\s*([①②③④⑤])\]", text):
+        answers[int(number)] = ANSWER_MARKS[mark]
+    return answers
+
+
+def split_compact_question_blocks(text: str) -> list[tuple[int, str]]:
+    matches = list(re.finditer(r"문\s*(\d{1,2})\.\s*", text))
+    blocks: list[tuple[int, str]] = []
+    for index, match in enumerate(matches):
+        number = int(match.group(1))
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        blocks.append((number, text[start:end]))
+    return blocks
+
+
+def parse_compact_question_with_answer(
+    number: int,
+    block: str,
+    answer: str | None,
+    source: str,
+    subject: str,
+    id_subject: str,
+) -> dict | None:
+    if not answer:
+        return None
+    question_area = block
+    question_area = re.sub(r"^문\s*\d{1,2}\.\s*", "", question_area).strip()
+    choice_matches = list(re.finditer(r"[①②③④⑤]", question_area))
+    if len(choice_matches) < 4:
+        return None
+
+    stem = normalize(question_area[: choice_matches[0].start()])
+    choices: list[str] = []
+    for idx, match in enumerate(choice_matches):
+        start = match.end()
+        end = choice_matches[idx + 1].start() if idx + 1 < len(choice_matches) else len(question_area)
+        choices.append(normalize(question_area[start:end]))
+    if not stem:
+        return None
+    return make_record(number, source, subject, id_subject, stem, choices, answer)
 
 
 def main() -> None:
@@ -268,21 +382,25 @@ def main() -> None:
     parser.add_argument("--pdf", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--source", default="2025-national-9")
+    parser.add_argument("--subject", default="행정법총론")
+    parser.add_argument("--id-subject", default="adminlaw")
     parser.add_argument(
         "--format",
-        choices=["columns", "numbered", "cbt", "hwp-cbt"],
+        choices=["columns", "numbered", "cbt", "hwp-cbt", "bracket-answer"],
         default="columns",
     )
     args = parser.parse_args()
 
     if args.format == "columns":
-        records = convert_2025(args.pdf)
+        records = convert_2025(args.pdf, args.subject, args.id_subject)
     elif args.format == "numbered":
-        records = convert_numbered(args.pdf, args.source)
+        records = convert_numbered(args.pdf, args.source, args.subject, args.id_subject)
     elif args.format == "cbt":
-        records = convert_cbt(args.pdf, args.source)
+        records = convert_cbt(args.pdf, args.source, args.subject, args.id_subject)
+    elif args.format == "bracket-answer":
+        records = convert_bracket_answer(args.pdf, args.source, args.subject, args.id_subject)
     else:
-        records = convert_hwp_cbt(args.pdf, args.source)
+        records = convert_hwp_cbt(args.pdf, args.source, args.subject, args.id_subject)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
         for record in records:

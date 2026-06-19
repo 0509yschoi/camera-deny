@@ -39,7 +39,14 @@ Keep explanations short. The app only needs enough context to choose the likely 
 
 ## Current Import Notes
 
-- Current bundled data is admin-law focused only. Add other subjects as separate records with a clear `subject` value.
+- Current bundled data includes admin-law and public-administration records. Keep `subject` values distinct so retrieval debug stays readable.
+- `AS_NJJ.pdf`: imported 20 public-administration questions from 2011 national 9.
+- `9급지방직공무원행정학개론20250621(교사용).hwp`: imported 20 public-administration questions.
+- `9급지방직공무원행정학개론20240622(교사용).hwp`: imported 20 public-administration questions.
+- `9급지방직공무원행정학개론20230610(교사용).hwp`: imported 20 public-administration questions.
+- `9급지방직공무원행정학개론20220618(교사용).hwp`: imported 20 public-administration questions.
+- `9급지방직공무원행정학개론20210605(교사용).hwp`: imported 20 public-administration questions.
+- `9급지방직공무원행정학개론20200613(교사용).hwp`: imported 20 public-administration questions.
 - `2024 국가직 9급 행정법총론 해설 김대근.pdf`: imported 20 questions.
 - `2025 국가직 9급 행정법총론 해설 유휘운.pdf`: imported 20 questions.
 - `9급지방직공무원행정법총론20250621(교사용).pdf`: imported 20 questions.
