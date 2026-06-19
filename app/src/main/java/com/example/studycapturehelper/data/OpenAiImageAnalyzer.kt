@@ -40,6 +40,12 @@ class OpenAiImageAnalyzer @Inject constructor(
                         .toInputContent(),
                 )
             }
+            createEnhancedTextRegionCrop(image.bytes)?.let { crop ->
+                add(
+                    CapturedImage(bytes = crop, mimeType = "image/jpeg")
+                        .toInputContent(),
+                )
+            }
         }
         val request = ResponseRequest(
             model = "gpt-4o",
@@ -89,47 +95,36 @@ class OpenAiImageAnalyzer @Inject constructor(
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
         try {
             val document = findDocumentBounds(bitmap) ?: Bounds(0, 0, bitmap.width - 1, bitmap.height - 1)
-            val step = max(1, min(document.width, document.height) / 320)
-            var minX = bitmap.width
-            var minY = bitmap.height
-            var maxX = -1
-            var maxY = -1
-            var hits = 0
-
-            for (y in document.top..document.bottom step step) {
-                for (x in document.left..document.right step step) {
-                    val pixel = bitmap.getPixel(x, y)
-                    val r = (pixel shr 16) and 0xFF
-                    val g = (pixel shr 8) and 0xFF
-                    val b = pixel and 0xFF
-                    val brightness = (r + g + b) / 3
-                    val channelSpread = maxOf(r, g, b) - minOf(r, g, b)
-                    if (brightness < 145 && channelSpread < 90) {
-                        minX = min(minX, x)
-                        minY = min(minY, y)
-                        maxX = max(maxX, x)
-                        maxY = max(maxY, y)
-                        hits++
-                    }
-                }
-            }
-
-            if (hits < 80 || maxX <= minX || maxY <= minY) return null
-
-            val margin = 48
-            minX = max(0, minX - margin)
-            minY = max(0, minY - margin)
-            maxX = min(bitmap.width - 1, maxX + margin)
-            maxY = min(bitmap.height - 1, maxY + margin)
-
-            val width = maxX - minX + 1
-            val height = maxY - minY + 1
+            val text = findTextBounds(bitmap, document, margin = 48) ?: return null
+            val width = text.width
+            val height = text.height
             if (width < bitmap.width / 5 || height < bitmap.height / 5) return null
 
-            val cropped = Bitmap.createBitmap(bitmap, minX, minY, width, height)
+            val cropped = Bitmap.createBitmap(bitmap, text.left, text.top, width, height)
             val scaled = scaleForReading(cropped)
             val out = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, 96, out)
+            if (scaled !== cropped) scaled.recycle()
+            cropped.recycle()
+            return out.toByteArray()
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun createEnhancedTextRegionCrop(bytes: ByteArray): ByteArray? {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        try {
+            val document = findDocumentBounds(bitmap) ?: Bounds(0, 0, bitmap.width - 1, bitmap.height - 1)
+            val text = findTextBounds(bitmap, document, margin = 64) ?: return null
+            if (text.width < bitmap.width / 5 || text.height < bitmap.height / 5) return null
+
+            val cropped = Bitmap.createBitmap(bitmap, text.left, text.top, text.width, text.height)
+            val scaled = scaleForReading(cropped, targetMaxSide = 2200, maxScale = 3.0f)
+            val enhanced = enhanceForReading(scaled)
+            val out = ByteArrayOutputStream()
+            enhanced.compress(Bitmap.CompressFormat.JPEG, 98, out)
+            enhanced.recycle()
             if (scaled !== cropped) scaled.recycle()
             cropped.recycle()
             return out.toByteArray()
@@ -175,10 +170,52 @@ class OpenAiImageAnalyzer @Inject constructor(
         )
     }
 
-    private fun scaleForReading(bitmap: Bitmap): Bitmap {
+    private fun findTextBounds(bitmap: Bitmap, document: Bounds, margin: Int): Bounds? {
+        val step = max(1, min(document.width, document.height) / 360)
+        var minX = bitmap.width
+        var minY = bitmap.height
+        var maxX = -1
+        var maxY = -1
+        var hits = 0
+
+        for (y in document.top..document.bottom step step) {
+            for (x in document.left..document.right step step) {
+                val pixel = bitmap.getPixel(x, y)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                val brightness = (r + g + b) / 3
+                val channelSpread = maxOf(r, g, b) - minOf(r, g, b)
+                val isLikelyInk = brightness < 150 && channelSpread < 110
+                val isStrongEdge = brightness < 115
+                if (isLikelyInk || isStrongEdge) {
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                    hits++
+                }
+            }
+        }
+
+        if (hits < 80 || maxX <= minX || maxY <= minY) return null
+
+        return Bounds(
+            left = max(0, minX - margin),
+            top = max(0, minY - margin),
+            right = min(bitmap.width - 1, maxX + margin),
+            bottom = min(bitmap.height - 1, maxY + margin),
+        )
+    }
+
+    private fun scaleForReading(
+        bitmap: Bitmap,
+        targetMaxSide: Int = 1600,
+        maxScale: Float = 2.0f,
+    ): Bitmap {
         val maxSide = max(bitmap.width, bitmap.height)
-        if (maxSide >= 1600) return bitmap
-        val scale = min(2.0f, 1600f / maxSide)
+        if (maxSide >= targetMaxSide) return bitmap
+        val scale = min(maxScale, targetMaxSide.toFloat() / maxSide)
         if (scale <= 1.05f) return bitmap
         return Bitmap.createScaledBitmap(
             bitmap,
@@ -188,10 +225,38 @@ class OpenAiImageAnalyzer @Inject constructor(
         )
     }
 
+    private fun enhanceForReading(bitmap: Bitmap): Bitmap {
+        val enhanced = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                val luminance = ((r * 30) + (g * 59) + (b * 11)) / 100
+                val contrasted = (((luminance - 128) * 2.2f) + 128)
+                    .toInt()
+                    .coerceIn(0, 255)
+                val value = when {
+                    contrasted < 95 -> 0
+                    contrasted > 215 -> 255
+                    else -> contrasted
+                }
+                enhanced.setPixel(
+                    x,
+                    y,
+                    (0xFF shl 24) or (value shl 16) or (value shl 8) or value,
+                )
+            }
+        }
+        return enhanced
+    }
+
     private companion object {
         val STUDY_PROMPT = """
 You solve visible Korean multiple-choice study questions from camera images.
 The user may provide the original frame plus cropped versions of the same page.
+Some images may be high-contrast reading aids of the same page.
 
 Return ONLY question numbers and answer choice numbers.
 No explanation. No copied text. No confidence text. No greetings.
@@ -206,6 +271,8 @@ Rules:
 - If two or more questions are visible, use one line per question.
 - Use only the visible question and visible choices when selecting an answer.
 - Do not fill missing choices from memory.
+- Before choosing, silently read the question stem and all visible choices.
+- If the original and enhanced images disagree, trust the image where the printed Korean text is sharper.
 - If a question is visible but not enough text is readable to choose, output "questionNumber: ?".
 - If no question number can be read, output "?: ?".
 - Keep the answer under 5 lines.
