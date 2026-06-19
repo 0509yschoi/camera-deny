@@ -17,6 +17,11 @@ data class ResponseRequest(
     val model: String,
     val input: List<InputMessage>,
     @Json(name = "max_output_tokens") val maxOutputTokens: Int = 200,
+    val reasoning: ReasoningConfig? = null,
+)
+
+data class ReasoningConfig(
+    val effort: String,
 )
 
 data class InputMessage(

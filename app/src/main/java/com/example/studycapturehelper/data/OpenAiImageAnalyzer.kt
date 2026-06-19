@@ -42,7 +42,13 @@ class OpenAiImageAnalyzer @Inject constructor(
                 addBestReadingCrop(index, image)
             }
         }
-        val ocrText = createTextResponse(token, ocrContent, maxOutputTokens = 1_200)
+        val ocrText = createTextResponse(
+            token = token,
+            content = ocrContent,
+            maxOutputTokens = 1_200,
+            model = OCR_MODEL,
+            reasoningEffort = null,
+        )
         val solveText = createTextResponse(
             token = token,
             content = listOf(
@@ -50,6 +56,8 @@ class OpenAiImageAnalyzer @Inject constructor(
                 InputContent(type = "input_text", text = ocrText),
             ),
             maxOutputTokens = 500,
+            model = REASONING_MODEL,
+            reasoningEffort = "high",
         )
         val verifyText = createTextResponse(
             token = token,
@@ -67,6 +75,8 @@ class OpenAiImageAnalyzer @Inject constructor(
                 ),
             ),
             maxOutputTokens = 700,
+            model = REASONING_MODEL,
+            reasoningEffort = "high",
         )
         return StudyAnalysis(
             text = formatAnswerOnly(verifyText),
@@ -87,11 +97,14 @@ class OpenAiImageAnalyzer @Inject constructor(
         token: String,
         content: List<InputContent>,
         maxOutputTokens: Int,
+        model: String,
+        reasoningEffort: String?,
     ): String {
         val request = ResponseRequest(
-            model = "gpt-4o",
+            model = model,
             input = listOf(InputMessage(role = "user", content = content)),
             maxOutputTokens = maxOutputTokens,
+            reasoning = reasoningEffort?.let(::ReasoningConfig),
         )
         val response = api.createResponse("Bearer $token", request)
         return response.outputText?.trim().orEmpty().ifBlank {
@@ -345,6 +358,8 @@ class OpenAiImageAnalyzer @Inject constructor(
 
     private companion object {
         const val MAX_ANALYSIS_FRAMES = 5
+        const val OCR_MODEL = "gpt-4o"
+        const val REASONING_MODEL = "gpt-5.4-mini"
         val STRICT_ANSWER_REGEX = Regex(
             pattern = "(?im)^\\s*(?:q(?:uestion)?\\s*)?(\\d{1,3}|\\?)\\s*" +
                 "(?:[:.)\\]-]|->|=>|\\uB300|\\uBC88)?\\s*" +
