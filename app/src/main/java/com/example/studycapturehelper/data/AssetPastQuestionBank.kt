@@ -89,11 +89,8 @@ class AssetPastQuestionBank @Inject constructor(
             "다음",
             "설명",
             "옳은",
-            "옳지",
-            "않은",
             "것은",
             "있는",
-            "없는",
             "경우",
         )
     }

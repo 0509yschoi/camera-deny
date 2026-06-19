@@ -380,29 +380,28 @@ class OpenAiImageAnalyzer @Inject constructor(
     }
 
     private fun enhanceForReading(bitmap: Bitmap): Bitmap {
-        val enhanced = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        for (y in 0 until bitmap.height) {
-            for (x in 0 until bitmap.width) {
-                val pixel = bitmap.getPixel(x, y)
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-                val luminance = ((r * 30) + (g * 59) + (b * 11)) / 100
-                val contrasted = (((luminance - 128) * 2.2f) + 128)
-                    .toInt()
-                    .coerceIn(0, 255)
-                val value = when {
-                    contrasted < 95 -> 0
-                    contrasted > 215 -> 255
-                    else -> contrasted
-                }
-                enhanced.setPixel(
-                    x,
-                    y,
-                    (0xFF shl 24) or (value shl 16) or (value shl 8) or value,
-                )
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (index in pixels.indices) {
+            val pixel = pixels[index]
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+            val luminance = ((r * 30) + (g * 59) + (b * 11)) / 100
+            val contrasted = (((luminance - 128) * 2.2f) + 128)
+                .toInt()
+                .coerceIn(0, 255)
+            val value = when {
+                contrasted < 95 -> 0
+                contrasted > 215 -> 255
+                else -> contrasted
             }
+            pixels[index] = (0xFF shl 24) or (value shl 16) or (value shl 8) or value
         }
+        val enhanced = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        enhanced.setPixels(pixels, 0, width, 0, 0, width, height)
         return enhanced
     }
 

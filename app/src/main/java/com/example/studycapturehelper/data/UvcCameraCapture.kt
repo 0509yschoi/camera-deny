@@ -75,7 +75,6 @@ class UvcCameraCapture @Inject constructor(
     ): CameraUVC {
         val attempts = listOf(
             CameraSize(1920, 1080),
-            CameraSize(1920, 1080),
             CameraSize(1280, 720),
             CameraSize(640, 480),
         )
