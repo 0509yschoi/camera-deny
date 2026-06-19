@@ -49,17 +49,29 @@ class OpenAiImageAnalyzer @Inject constructor(
             model = OCR_MODEL,
             reasoningEffort = null,
         )
-        val solveText = createTextResponse(
+        val primarySolveText = createTextResponse(
             token = token,
             content = listOf(
                 InputContent(type = "input_text", text = SOLVE_PROMPT),
                 InputContent(type = "input_text", text = ocrText),
             ),
-            maxOutputTokens = 500,
+            maxOutputTokens = 2_000,
             model = REASONING_MODEL,
-            reasoningEffort = "high",
+            reasoningEffort = "medium",
         )
-        val verifyText = createTextResponse(
+        val solveText = primarySolveText.ifBlank {
+            createTextResponse(
+                token = token,
+                content = listOf(
+                    InputContent(type = "input_text", text = SOLVE_PROMPT),
+                    InputContent(type = "input_text", text = ocrText),
+                ),
+                maxOutputTokens = 900,
+                model = OCR_MODEL,
+                reasoningEffort = null,
+            )
+        }
+        val primaryVerifyText = createTextResponse(
             token = token,
             content = listOf(
                 InputContent(type = "input_text", text = VERIFY_PROMPT),
@@ -74,21 +86,50 @@ class OpenAiImageAnalyzer @Inject constructor(
                     },
                 ),
             ),
-            maxOutputTokens = 700,
+            maxOutputTokens = 2_000,
             model = REASONING_MODEL,
-            reasoningEffort = "high",
+            reasoningEffort = "medium",
         )
+        val verifyText = primaryVerifyText.ifBlank {
+            createTextResponse(
+                token = token,
+                content = listOf(
+                    InputContent(type = "input_text", text = VERIFY_PROMPT),
+                    InputContent(
+                        type = "input_text",
+                        text = buildString {
+                            appendLine("OCR_TEXT:")
+                            appendLine(ocrText)
+                            appendLine()
+                            appendLine("PROPOSED_SOLUTION:")
+                            append(solveText)
+                        },
+                    ),
+                ),
+                maxOutputTokens = 900,
+                model = OCR_MODEL,
+                reasoningEffort = null,
+            )
+        }
+        val finalText = verifyText.ifBlank { solveText }
         return StudyAnalysis(
-            text = formatAnswerOnly(verifyText),
+            text = formatAnswerOnly(finalText),
             debugText = buildString {
                 appendLine("OCR_RESULT:")
                 appendLine(ocrText.ifBlank { "(empty)" })
                 appendLine()
                 appendLine("SOLVE_RESULT:")
                 appendLine(solveText.ifBlank { "(empty)" })
+                if (primarySolveText.isBlank() && solveText.isNotBlank()) {
+                    appendLine("(solve fallback used)")
+                }
                 appendLine()
                 appendLine("VERIFY_RESULT:")
                 append(verifyText.ifBlank { "(empty)" })
+                if (primaryVerifyText.isBlank() && verifyText.isNotBlank()) {
+                    appendLine()
+                    append("(verify fallback used)")
+                }
             },
         )
     }
