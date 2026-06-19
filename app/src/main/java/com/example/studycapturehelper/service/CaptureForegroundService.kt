@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.example.studycapturehelper.domain.CameraCapture
 import com.example.studycapturehelper.domain.CaptureIntervalPolicy
+import com.example.studycapturehelper.domain.CapturedImage
 import com.example.studycapturehelper.domain.ImageAnalyzer
 import com.example.studycapturehelper.domain.SessionState
 import com.example.studycapturehelper.domain.SettingsRepository
@@ -90,14 +91,11 @@ class CaptureForegroundService : LifecycleService() {
         }
     }
 
-    private suspend fun captureBurst(): List<com.example.studycapturehelper.domain.CapturedImage> {
-        val frames = mutableListOf<com.example.studycapturehelper.domain.CapturedImage>()
-        repeat(BURST_FRAME_COUNT) { index ->
-            val captured = camera.captureJpeg()
+    private suspend fun captureBurst(): List<CapturedImage> {
+        val frames = camera.captureJpegs(BURST_FRAME_COUNT, BURST_FRAME_DELAY_MS)
+        frames.forEachIndexed { index, captured ->
             Log.d(TAG, "Camera burst frame ${index + 1}: ${captured.bytes.size} bytes")
             sessionStatus.updateLastImage(captured.bytes)
-            frames += captured
-            if (index < BURST_FRAME_COUNT - 1) delay(BURST_FRAME_DELAY_MS)
         }
         return frames
     }
@@ -127,6 +125,6 @@ class CaptureForegroundService : LifecycleService() {
         const val ACTION_START = "com.example.studycapturehelper.START"
         const val ACTION_STOP = "com.example.studycapturehelper.STOP"
         private const val BURST_FRAME_COUNT = 5
-        private const val BURST_FRAME_DELAY_MS = 700L
+        private const val BURST_FRAME_DELAY_MS = 150L
     }
 }

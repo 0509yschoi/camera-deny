@@ -326,6 +326,7 @@ Use all reading aids together. Combine the sharpest visible text from different 
 
 Return two sections: ANSWERS and OCR_DEBUG.
 Keep ANSWERS answer-only. OCR_DEBUG is for troubleshooting the recognized text.
+Never reconstruct or complete OCR_DEBUG from legal knowledge, common exam patterns, or memory.
 
 Output format:
 ANSWERS:
@@ -345,12 +346,14 @@ Rules:
 - When frames disagree, trust the frame where the relevant printed Korean text is largest and sharpest.
 - If one frame shows the question stem and another frame shows the choices, combine them for the same question number.
 - Use only the visible question and visible choices when selecting an answer.
-- Do not fill missing choices from memory.
+- Do not fill missing choices from memory. Do not paraphrase unseen choices.
 - Before choosing, silently read the question stem and all visible choices.
 - If the original and enhanced images disagree, trust the image where the printed Korean text is sharper.
-- If a question is visible but not enough text is readable to choose, output "questionNumber: ?".
+- If any choice text is not actually readable, put "[?]" for that choice in OCR_DEBUG.
+- If a question is visible but the stem or choices are not enough to choose from visible text, output "questionNumber: ?".
 - If no question number can be read, output "?: ?".
 - In OCR_DEBUG, mark uncertain characters with [?] instead of silently guessing.
+- It is better to output "19: ?" than to guess or invent choices.
 - Keep ANSWERS under 5 lines.
         """.trimIndent()
     }

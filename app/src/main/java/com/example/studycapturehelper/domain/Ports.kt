@@ -11,6 +11,10 @@ interface SettingsRepository {
 interface CameraCapture {
     suspend fun connect()
     suspend fun captureJpeg(): CapturedImage
+    suspend fun captureJpegs(count: Int, delayMillis: Long): List<CapturedImage> =
+        List(count.coerceAtLeast(1)) {
+            captureJpeg()
+        }
     suspend fun disconnect()
 }
 

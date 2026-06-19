@@ -11,6 +11,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Handler
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import com.example.studycapturehelper.domain.CameraCapture
@@ -97,8 +98,15 @@ class UvcCameraCapture @Inject constructor(
     }
 
     override suspend fun captureJpeg(): CapturedImage {
+        return captureJpegs(count = 1, delayMillis = 0L).first()
+    }
+
+    override suspend fun captureJpegs(count: Int, delayMillis: Long): List<CapturedImage> {
         val cam = checkNotNull(camera) { "Call connect() before captureJpeg()." }
-        val bytes = suspendCancellableCoroutine<ByteArray> { cont ->
+        val safeCount = count.coerceAtLeast(1)
+        return suspendCancellableCoroutine { cont ->
+            val frames = mutableListOf<CapturedImage>()
+            var lastFrameAt = 0L
             val cb = object : IPreviewDataCallBack {
                 override fun onPreviewData(
                     data: ByteArray?,
@@ -106,42 +114,68 @@ class UvcCameraCapture @Inject constructor(
                     height: Int,
                     format: IPreviewDataCallBack.DataFormat,
                 ) {
-                    cam.removePreviewDataCallBack(this)
                     if (data == null || !cont.isActive) return
-                    val bmp = when (format) {
-                        IPreviewDataCallBack.DataFormat.NV21 -> {
-                            val yuvImage = android.graphics.YuvImage(
-                                data,
-                                android.graphics.ImageFormat.NV21,
-                                width,
-                                height,
-                                null,
-                            )
-                            val out = ByteArrayOutputStream()
-                            yuvImage.compressToJpeg(
-                                android.graphics.Rect(0, 0, width, height),
-                                95,
-                                out,
-                            )
-                            cont.resume(out.toByteArray())
-                            return
+                    val now = SystemClock.elapsedRealtime()
+                    if (frames.isNotEmpty() && now - lastFrameAt < delayMillis) return
+
+                    runCatching {
+                        CapturedImage(
+                            bytes = encodePreviewJpeg(data, width, height, format),
+                            mimeType = "image/jpeg",
+                        )
+                    }.onSuccess { image ->
+                        frames += image
+                        lastFrameAt = now
+                        if (frames.size >= safeCount && cont.isActive) {
+                            cam.removePreviewDataCallBack(this)
+                            cont.resume(frames.toList())
                         }
-                        IPreviewDataCallBack.DataFormat.RGBA -> {
-                            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { b ->
-                                b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(data))
-                            }
+                    }.onFailure { error ->
+                        if (cont.isActive) {
+                            cam.removePreviewDataCallBack(this)
+                            cont.resumeWithException(error)
                         }
                     }
-                    val out = ByteArrayOutputStream()
-                    bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
-                    bmp.recycle()
-                    cont.resume(out.toByteArray())
                 }
             }
             cam.addPreviewDataCallBack(cb)
             cont.invokeOnCancellation { cam.removePreviewDataCallBack(cb) }
         }
-        return CapturedImage(bytes = bytes, mimeType = "image/jpeg")
+    }
+
+    private fun encodePreviewJpeg(
+        data: ByteArray,
+        width: Int,
+        height: Int,
+        format: IPreviewDataCallBack.DataFormat,
+    ): ByteArray {
+        return when (format) {
+            IPreviewDataCallBack.DataFormat.NV21 -> {
+                val yuvImage = android.graphics.YuvImage(
+                    data,
+                    android.graphics.ImageFormat.NV21,
+                    width,
+                    height,
+                    null,
+                )
+                ByteArrayOutputStream().also { out ->
+                    yuvImage.compressToJpeg(
+                        android.graphics.Rect(0, 0, width, height),
+                        95,
+                        out,
+                    )
+                }.toByteArray()
+            }
+            IPreviewDataCallBack.DataFormat.RGBA -> {
+                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { b ->
+                    b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(data))
+                }
+                val out = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                bmp.recycle()
+                out.toByteArray()
+            }
+        }
     }
 
     override suspend fun disconnect() {
