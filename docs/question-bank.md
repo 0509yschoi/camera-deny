@@ -39,7 +39,32 @@ Keep explanations short. The app only needs enough context to choose the likely 
 
 ## Current Import Notes
 
-- Current bundled data includes admin-law, public-administration, Korean-history, and Korean-language records. Keep `subject` values distinct so retrieval debug stays readable.
+- Current bundled data includes admin-law, public-administration, Korean-history, Korean-language, and English records. Keep `subject` values distinct so retrieval debug stays readable.
+
+### English
+
+- `9급국가직공무원영어20250405(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20240323(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20230408(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20220402(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20210417(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20200711(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20190406(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20180407(교사용).hwp`: imported 20 English questions.
+- `9급국가직공무원영어20170408(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20250621(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20240622(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20230610(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20220618(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20210605(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20200613(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20190615(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20180519(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20171216(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20170617(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20170408(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20160618(교사용).hwp`: imported 20 English questions.
+- `9급지방직공무원영어20160319(교사용).hwp`: imported 20 English questions.
 
 ### Korean Language
 
