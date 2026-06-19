@@ -265,6 +265,8 @@ def parse_standalone_answer_table(text: str) -> dict[int, str]:
 
 
 def split_cbt_question_blocks(text: str) -> list[tuple[int, str]]:
+    for junk in ("氠瑢", "捤獥汤捯慤桥潴景氠瑢"):
+        text = text.replace(junk, "\n")
     matches = list(re.finditer(r"(?m)^\s*(\d{1,2})\.\s+", text))
     blocks: list[tuple[int, str]] = []
     for index, match in enumerate(matches):
