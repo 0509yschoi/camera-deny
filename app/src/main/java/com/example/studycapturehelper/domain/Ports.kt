@@ -23,6 +23,21 @@ interface ImageAnalyzer {
     suspend fun analyze(images: List<CapturedImage>): StudyAnalysis = analyze(images.first())
 }
 
+interface PastQuestionBank {
+    suspend fun findRelevant(ocrText: String, limit: Int = 5): List<PastQuestionMatch>
+}
+
+data class PastQuestionMatch(
+    val id: String,
+    val source: String,
+    val subject: String,
+    val question: String,
+    val choices: List<String>,
+    val answer: String,
+    val explanation: String?,
+    val score: Int,
+)
+
 interface SpeechOutput {
     suspend fun speak(text: String)
     fun stop()

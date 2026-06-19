@@ -3,6 +3,7 @@ package com.example.studycapturehelper.di
 import com.example.studycapturehelper.data.AndroidSpeechOutput
 import com.example.studycapturehelper.data.AndroidThermalPolicy
 import com.example.studycapturehelper.data.ApiTokenProvider
+import com.example.studycapturehelper.data.AssetPastQuestionBank
 import com.example.studycapturehelper.data.GitHubAppUpdateRepository
 import com.example.studycapturehelper.data.GitHubReleaseApi
 import com.example.studycapturehelper.BuildConfig
@@ -13,6 +14,7 @@ import com.example.studycapturehelper.data.UvcCameraCapture
 import com.example.studycapturehelper.domain.CameraCapture
 import com.example.studycapturehelper.domain.AppUpdateRepository
 import com.example.studycapturehelper.domain.ImageAnalyzer
+import com.example.studycapturehelper.domain.PastQuestionBank
 import com.example.studycapturehelper.domain.SettingsRepository
 import com.example.studycapturehelper.domain.SpeechOutput
 import com.example.studycapturehelper.domain.ThermalPolicy
@@ -35,6 +37,7 @@ abstract class BindingsModule {
     @Binds abstract fun bindSettings(impl: SettingsRepositoryImpl): SettingsRepository
     @Binds abstract fun bindCamera(impl: UvcCameraCapture): CameraCapture
     @Binds abstract fun bindAnalyzer(impl: OpenAiImageAnalyzer): ImageAnalyzer
+    @Binds abstract fun bindPastQuestionBank(impl: AssetPastQuestionBank): PastQuestionBank
     @Binds abstract fun bindSpeech(impl: AndroidSpeechOutput): SpeechOutput
     @Binds abstract fun bindThermal(impl: AndroidThermalPolicy): ThermalPolicy
     @Binds abstract fun bindAppUpdate(impl: GitHubAppUpdateRepository): AppUpdateRepository

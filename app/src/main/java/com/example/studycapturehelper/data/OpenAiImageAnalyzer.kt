@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import com.example.studycapturehelper.domain.CapturedImage
 import com.example.studycapturehelper.domain.ImageAnalyzer
+import com.example.studycapturehelper.domain.PastQuestionBank
+import com.example.studycapturehelper.domain.PastQuestionMatch
 import com.example.studycapturehelper.domain.StudyAnalysis
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
@@ -20,6 +22,7 @@ fun interface ApiTokenProvider {
 class OpenAiImageAnalyzer @Inject constructor(
     private val api: OpenAiApi,
     private val tokenProvider: ApiTokenProvider,
+    private val pastQuestionBank: PastQuestionBank,
 ) : ImageAnalyzer {
     override suspend fun analyze(image: CapturedImage): StudyAnalysis {
         return analyze(listOf(image))
@@ -49,11 +52,21 @@ class OpenAiImageAnalyzer @Inject constructor(
             model = OCR_MODEL,
             reasoningEffort = null,
         )
+        val pastQuestionMatches = pastQuestionBank.findRelevant(ocrText, PAST_QUESTION_LIMIT)
+        val solveContext = buildString {
+            if (pastQuestionMatches.isNotEmpty()) {
+                appendLine("PAST_QUESTION_REFERENCES:")
+                appendLine(formatPastQuestionMatches(pastQuestionMatches))
+                appendLine()
+            }
+            appendLine("OCR_TEXT:")
+            append(ocrText)
+        }
         val solveAttempt = createBestReasoningResponse(
             token = token,
             content = listOf(
                 InputContent(type = "input_text", text = SOLVE_PROMPT),
-                InputContent(type = "input_text", text = ocrText),
+                InputContent(type = "input_text", text = solveContext),
             ),
         )
         return StudyAnalysis(
@@ -66,9 +79,33 @@ class OpenAiImageAnalyzer @Inject constructor(
                 appendLine(solveAttempt.text.ifBlank { "(empty)" })
                 appendLine("SOLVE_MODEL: ${solveAttempt.model.ifBlank { "(none)" }}")
                 solveAttempt.notes.forEach(::appendLine)
+                appendLine()
+                appendLine("PAST_QUESTION_REFERENCES:")
+                append(formatPastQuestionMatches(pastQuestionMatches).ifBlank { "(empty)" })
             },
         )
     }
+
+    private fun formatPastQuestionMatches(matches: List<PastQuestionMatch>): String =
+        matches.joinToString("\n\n") { match ->
+            buildString {
+                appendLine("- id: ${match.id}")
+                if (match.source.isNotBlank()) appendLine("  source: ${match.source}")
+                if (match.subject.isNotBlank()) appendLine("  subject: ${match.subject}")
+                appendLine("  score: ${match.score}")
+                appendLine("  question: ${match.question}")
+                if (match.choices.isNotEmpty()) {
+                    appendLine("  choices:")
+                    match.choices.forEachIndexed { index, choice ->
+                        appendLine("    ${index + 1}. $choice")
+                    }
+                }
+                appendLine("  answer: ${match.answer}")
+                match.explanation?.takeIf(String::isNotBlank)?.let {
+                    appendLine("  explanation: $it")
+                }
+            }.trimEnd()
+        }
 
     private suspend fun createBestReasoningResponse(
         token: String,
@@ -365,6 +402,7 @@ class OpenAiImageAnalyzer @Inject constructor(
 
     private companion object {
         const val MAX_ANALYSIS_FRAMES = 5
+        const val PAST_QUESTION_LIMIT = 5
         const val OCR_MODEL = "gpt-4o"
         const val REASONING_MAX_OUTPUT_TOKENS = 5_000
         val REASONING_MODELS = listOf("gpt-5.5", "gpt-5.4-mini")
@@ -416,6 +454,7 @@ Rules:
         val SOLVE_PROMPT = """
 You are a Korean civil-service exam multiple-choice answer engine.
 The user provides OCR text from public-law/admin-law style exam questions.
+The user may also provide similar past-question references with known answers.
 Your goal is to match how Korean civil-service exam questions are normally answered, not to write a legal essay.
 
 Return two sections: ANSWERS and SOLVE_DEBUG.
@@ -431,7 +470,9 @@ SOLVE_DEBUG:
 19 eval: 1=T/F/?; 2=T/F/?; 3=T/F/?; 4=T/F/?
 
 Rules:
-- Use OCR text as the question source. If a choice has a small OCR typo but its exam concept is clear, infer the intended printed sentence.
+- Use OCR_TEXT as the current question source. If a choice has a small OCR typo but its exam concept is clear, infer the intended printed sentence.
+- Use PAST_QUESTION_REFERENCES as strong hints for repeated traps, standard answers, and similar wording.
+- Do not copy a past answer blindly if the current question asks the opposite direction or the choices differ materially.
 - First identify whether each question asks for the correct choice, incorrect choice, exception, or unknown.
 - Korean negative ask phrases include "옳지 않은", "타당하지 않은", "잘못된", "아닌", "제외", and "않은".
 - Solve like a Korean civil-service test taker: use learned public-law/admin-law exam knowledge, repeated past-question patterns, and standard doctrine/case-law memory.
