@@ -2,13 +2,17 @@ package com.example.studycapturehelper.data
 
 import com.squareup.moshi.Json
 import retrofit2.http.GET
+import retrofit2.http.Headers
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 interface GitHubReleaseApi {
+    @Headers("Cache-Control: no-cache", "Pragma: no-cache")
     @GET("repos/{owner}/{repository}/releases/latest")
     suspend fun latestRelease(
         @Path("owner") owner: String,
         @Path("repository") repository: String,
+        @Query("_") cacheBust: Long,
     ): GitHubReleaseDto
 }
 

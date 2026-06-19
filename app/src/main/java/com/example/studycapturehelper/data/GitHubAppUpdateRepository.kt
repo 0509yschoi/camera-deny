@@ -21,7 +21,7 @@ class GitHubAppUpdateRepository @Inject constructor(
         }
 
         return runCatching {
-            val release = api.latestRelease(parts[0], parts[1])
+            val release = api.latestRelease(parts[0], parts[1], System.currentTimeMillis())
             val apk = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
             if (
                 release.draft ||
