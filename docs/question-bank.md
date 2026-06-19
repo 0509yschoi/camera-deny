@@ -39,12 +39,23 @@ Keep explanations short. The app only needs enough context to choose the likely 
 
 ## Current Import Notes
 
+- Current bundled data is admin-law focused only. Add other subjects as separate records with a clear `subject` value.
+- `2024 국가직 9급 행정법총론 해설 김대근.pdf`: imported 20 questions.
 - `2025 국가직 9급 행정법총론 해설 유휘운.pdf`: imported 20 questions.
 - `2026 국가직 9급 행정법총론 해설 공기출.pdf`: not imported yet because the provided PDF text is mainly generated explanation text and does not contain clean question/choice source text.
 - `2023 지방직 9급 행정법총론 해설 이승철.pdf`: not imported yet because it is image-based and needs OCR before structured conversion.
+- `2024 국가직 9급 행정법총론 해설 이승철.pdf`: not imported because it is image-based and needs OCR before structured conversion.
+- Other 2024 admin-law explanations from different instructors were not imported to avoid duplicate records for the same exam.
 
 Use `tools/extract_question_bank.py` for text-based two-column PDFs similar to the 2025 file, then merge with:
 
 ```text
 python tools/merge_question_bank.py
+```
+
+For numbered PDFs with `[1번 해설] ③` style answers:
+
+```text
+python tools/extract_question_bank.py --format numbered --source 2024-national-9 --pdf input.pdf --output tmp_question_bank.jsonl
+python tools/merge_question_bank.py tmp_question_bank.jsonl
 ```

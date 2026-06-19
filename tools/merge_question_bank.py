@@ -1,4 +1,5 @@
 import json
+import argparse
 from pathlib import Path
 
 
@@ -16,13 +17,23 @@ def read_records(path: Path) -> list[dict]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "inputs",
+        nargs="*",
+        type=Path,
+        default=[Path("tmp_2025_question_bank.jsonl")],
+    )
+    args = parser.parse_args()
+
     asset = Path("app/src/main/assets/exam_question_bank.jsonl")
-    generated = Path("tmp_2025_question_bank.jsonl")
 
     records_by_id: dict[str, dict] = {}
-    for record in read_records(asset) + read_records(generated):
-        record_id = record["id"]
-        records_by_id[record_id] = record
+    for record in read_records(asset):
+        records_by_id[record["id"]] = record
+    for path in args.inputs:
+        for record in read_records(path):
+            records_by_id[record["id"]] = record
 
     records = list(records_by_id.values())
 

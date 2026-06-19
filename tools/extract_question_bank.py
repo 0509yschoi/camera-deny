@@ -42,6 +42,8 @@ def parse_answer_preview(text: str) -> dict[int, str]:
     answers: dict[int, str] = {}
     for number, mark in re.findall(r"\b(\d{2})\s*([①②③④⑤])", text):
         answers[int(number)] = ANSWER_MARKS[mark]
+    for number, mark in re.findall(r"\[(\d{1,2})번\s*해설\]\s*([①②③④⑤])", text):
+        answers[int(number)] = ANSWER_MARKS[mark]
     return answers
 
 
@@ -56,7 +58,23 @@ def split_question_blocks(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
+def split_numbered_question_blocks(text: str) -> list[tuple[int, str]]:
+    answers = list(re.finditer(r"\[(\d{1,2})번\s*해설\]\s*[①②③④⑤]", text))
+    blocks: list[tuple[int, str]] = []
+    for answer_marker in answers:
+        number = int(answer_marker.group(1))
+        starts = list(re.finditer(rf"(?m)^\s*{number}\.\s+", text[: answer_marker.start()]))
+        if not starts:
+            continue
+        start = starts[-1].start()
+        blocks.append((number, text[start: answer_marker.start()]))
+    return blocks
+
+
 def trim_to_question_area(block: str) -> str:
+    marker = re.search(r"\[\d{1,2}번\s*해설\]", block)
+    if marker:
+        block = block[: marker.start()]
     marker = re.search(r"(?:\n|\s)(?:①|ㄱ\.)\s*[○×]", block)
     if marker:
         block = block[: marker.start()]
@@ -68,7 +86,7 @@ def trim_to_question_area(block: str) -> str:
 
 def parse_question_block(number: int, block: str, answer: str | None, source: str) -> dict | None:
     question_area = trim_to_question_area(block)
-    question_area = re.sub(r"^문\s*\d{1,2}\.\s*", "", question_area).strip()
+    question_area = re.sub(r"^(?:문\s*)?\d{1,2}\.\s*", "", question_area).strip()
     choice_matches = list(re.finditer(r"[①②③④⑤]", question_area))
     if len(choice_matches) < 4:
         return None
@@ -137,13 +155,30 @@ def convert_2025(pdf_path: Path) -> list[dict]:
     return records
 
 
+def convert_numbered(pdf_path: Path, source: str) -> list[dict]:
+    text = "\n".join((page.extract_text() or "") for page in pdfplumber.open(pdf_path).pages)
+    answers = parse_answer_preview(text)
+    records: list[dict] = []
+    for number, block in split_numbered_question_blocks(text):
+        record = parse_question_block(number, block, answers.get(number), source)
+        if record:
+            records.append(record)
+    return records
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--source", default="2025-national-9")
+    parser.add_argument("--format", choices=["columns", "numbered"], default="columns")
     args = parser.parse_args()
 
-    records = convert_2025(args.pdf)
+    records = (
+        convert_2025(args.pdf)
+        if args.format == "columns"
+        else convert_numbered(args.pdf, args.source)
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
         for record in records:
