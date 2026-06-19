@@ -43,7 +43,9 @@ class OpenAiImageAnalyzer @Inject constructor(
                 add(image.toInputContent())
             }
             safeImages.forEachIndexed { index, image ->
-                addBestReadingCrop(index, image)
+                if (index >= safeImages.size - MAX_READING_AID_FRAMES) {
+                    addReadingAids(index, image)
+                }
             }
         }
         val ocrStartedAt = SystemClock.elapsedRealtime()
@@ -179,13 +181,48 @@ class OpenAiImageAnalyzer @Inject constructor(
         )
     }
 
-    private fun MutableList<InputContent>.addBestReadingCrop(index: Int, image: CapturedImage) {
-        val crop = createEnhancedTextRegionCrop(image.bytes)
-            ?: createTextRegionCrop(image.bytes)
-            ?: createDocumentCrop(image.bytes)
-            ?: return
-        add(InputContent(type = "input_text", text = "Frame ${index + 1} best reading crop"))
-        add(CapturedImage(bytes = crop, mimeType = "image/jpeg").toInputContent())
+    private fun MutableList<InputContent>.addReadingAids(index: Int, image: CapturedImage) {
+        val crops = listOfNotNull(
+            createEnhancedTextRegionCrop(image.bytes)?.let { "best enhanced text crop" to it },
+            createViewportCrop(image.bytes, 0.45f, 0.35f, 1.0f, 1.0f)
+                ?.let { "lower-right page crop" to it },
+            createViewportCrop(image.bytes, 0.25f, 0.50f, 1.0f, 1.0f)
+                ?.let { "bottom page crop" to it },
+            createTextRegionCrop(image.bytes)?.let { "raw text crop" to it },
+            createDocumentCrop(image.bytes)?.let { "document crop" to it },
+        ).take(MAX_CROPS_PER_FRAME)
+
+        crops.forEach { (label, crop) ->
+            add(InputContent(type = "input_text", text = "Frame ${index + 1} $label"))
+            add(CapturedImage(bytes = crop, mimeType = "image/jpeg").toInputContent())
+        }
+    }
+
+    private fun createViewportCrop(
+        bytes: ByteArray,
+        leftRatio: Float,
+        topRatio: Float,
+        rightRatio: Float,
+        bottomRatio: Float,
+    ): ByteArray? {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        try {
+            val left = (bitmap.width * leftRatio).toInt().coerceIn(0, bitmap.width - 2)
+            val top = (bitmap.height * topRatio).toInt().coerceIn(0, bitmap.height - 2)
+            val right = (bitmap.width * rightRatio).toInt().coerceIn(left + 1, bitmap.width)
+            val bottom = (bitmap.height * bottomRatio).toInt().coerceIn(top + 1, bitmap.height)
+            val cropped = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+            val scaled = scaleForReading(cropped, targetMaxSide = 2000, maxScale = 3.0f)
+            val enhanced = enhanceForReading(scaled)
+            val out = ByteArrayOutputStream()
+            enhanced.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            enhanced.recycle()
+            if (scaled !== cropped) scaled.recycle()
+            cropped.recycle()
+            return out.toByteArray()
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun createDocumentCrop(bytes: ByteArray): ByteArray? {
@@ -419,6 +456,8 @@ class OpenAiImageAnalyzer @Inject constructor(
 
     private companion object {
         const val MAX_ANALYSIS_FRAMES = 5
+        const val MAX_READING_AID_FRAMES = 3
+        const val MAX_CROPS_PER_FRAME = 3
         const val PAST_QUESTION_LIMIT = 5
         const val OCR_MODEL = "gpt-4o"
         const val REASONING_MAX_OUTPUT_TOKENS = 900
