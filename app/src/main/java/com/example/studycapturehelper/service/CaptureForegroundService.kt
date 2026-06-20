@@ -92,7 +92,7 @@ class CaptureForegroundService : LifecycleService() {
                     Log.d(TAG, "Capturing camera burst")
                     sessionStatus.updateProgress("USB camera connected. Capturing 5 frames...")
                     val captureStartedAt = SystemClock.elapsedRealtime()
-                    val captured = withTimeout(CAPTURE_TIMEOUT_MS) { captureBurst() }
+                    val captured = captureBurstUntilAvailable()
                     val captureMs = SystemClock.elapsedRealtime() - captureStartedAt
                     Log.d(TAG, "Camera burst captured: ${captured.size} frames in ${captureMs}ms")
                     captured.lastOrNull()?.let { sessionStatus.updateLastImage(it.bytes) }
@@ -118,10 +118,30 @@ class CaptureForegroundService : LifecycleService() {
         }
     }
 
-    private suspend fun reconnectCameraUntilAvailable() {
+    private suspend fun captureBurstUntilAvailable(): List<CapturedImage> {
         var attempt = 1
         while (true) {
-            sessionStatus.updateProgress("Reconnecting USB camera after cooldown... attempt $attempt")
+            val frames = runCatching {
+                withTimeout(CAPTURE_TIMEOUT_MS) { captureBurst() }
+            }.onFailure { error ->
+                val msg = error.message ?: error.javaClass.simpleName
+                Log.w(TAG, "Camera capture failed on attempt $attempt: $msg", error)
+                sessionStatus.updateProgress(
+                    "Capture failed: $msg. Reconnecting camera...",
+                )
+            }.getOrNull()
+            if (!frames.isNullOrEmpty()) return frames
+
+            runCatching { camera.disconnect() }
+            reconnectCameraUntilAvailable(reason = "after capture timeout")
+            attempt += 1
+        }
+    }
+
+    private suspend fun reconnectCameraUntilAvailable(reason: String = "after cooldown") {
+        var attempt = 1
+        while (true) {
+            sessionStatus.updateProgress("Reconnecting USB camera $reason... attempt $attempt")
             val connected = runCatching {
                 withTimeout(CAMERA_CONNECT_TIMEOUT_MS) { camera.connect() }
             }.onFailure { error ->
@@ -232,7 +252,7 @@ class CaptureForegroundService : LifecycleService() {
         private const val BURST_FRAME_COUNT = 5
         private const val BURST_FRAME_DELAY_MS = 150L
         private const val CAMERA_CONNECT_TIMEOUT_MS = 10_000L
-        private const val CAPTURE_TIMEOUT_MS = 8_000L
+        private const val CAPTURE_TIMEOUT_MS = 20_000L
         private const val ACTIVE_WINDOW_MS = 20 * 60 * 1000L
         private const val COOLDOWN_MS = 4 * 60 * 1000L
         private const val COOLDOWN_TICK_MS = 10_000L
